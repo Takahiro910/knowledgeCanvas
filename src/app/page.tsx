@@ -86,12 +86,13 @@ export default function KnowledgeCanvasPage() {
   const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]);
   
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
-  const [currentNote, setCurrentNote] = useState<{ title: string; content: string }>({ title: '', content: '' });
+  const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
   const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string }>({ title: '', content: '' });
+  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
+
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -102,7 +103,7 @@ export default function KnowledgeCanvasPage() {
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, posX?: number, posY?: number) => {
+  const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     
     let worldX: number, worldY: number;
@@ -125,10 +126,11 @@ export default function KnowledgeCanvasPage() {
       title,
       content,
       fileType,
+      tags: tags || [],
       x: Math.max(0, worldX), 
       y: Math.max(0, worldY),
       width: 256, 
-      height: type === 'note' ? 160 : 120,
+      height: type === 'note' ? 160 : 120, // TODO: Adjust height based on content/tags?
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
@@ -146,13 +148,13 @@ export default function KnowledgeCanvasPage() {
   
   const handleFilesDrop = useCallback((droppedFiles: File[], dropX?: number, dropY?: number) => {
     droppedFiles.forEach(file => {
-      addNode('file', file.name, undefined, getFileType(file.name), dropX, dropY);
+      addNode('file', file.name, undefined, getFileType(file.name), [], dropX, dropY); // Initialize with empty tags
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
     });
   }, [addNode, toast]);
 
   const handleCreateNote = useCallback(() => {
-    setCurrentNote({ title: '', content: '' }); 
+    setCurrentNote({ title: '', content: '', tagsString: '' }); 
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
@@ -163,7 +165,8 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    addNode('note', currentNote.title, currentNote.content, undefined, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
+    const parsedTags = currentNote.tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
+    addNode('note', currentNote.title, currentNote.content, undefined, parsedTags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null); 
@@ -173,7 +176,11 @@ export default function KnowledgeCanvasPage() {
     const nodeToEdit = nodes.find(n => n.id === nodeId);
     if (nodeToEdit) {
       setEditingNodeId(nodeId);
-      setCurrentEditData({ title: nodeToEdit.title, content: nodeToEdit.content || '' });
+      setCurrentEditData({ 
+        title: nodeToEdit.title, 
+        content: nodeToEdit.content || '',
+        tagsString: nodeToEdit.tags ? nodeToEdit.tags.join(', ') : ''
+      });
       setIsEditDialogOpen(true);
       setIsNoteDialogOpen(false); // Ensure create dialog is closed
     }
@@ -191,6 +198,8 @@ export default function KnowledgeCanvasPage() {
         setEditingNodeId(null);
         return;
     }
+    
+    const parsedTags = currentEditData.tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
 
     setNodes(prevNodes =>
       prevNodes.map(n =>
@@ -199,6 +208,7 @@ export default function KnowledgeCanvasPage() {
               ...n,
               title: currentEditData.title,
               content: n.type === 'note' ? currentEditData.content : n.content,
+              tags: parsedTags,
             }
           : n
       )
@@ -221,6 +231,12 @@ export default function KnowledgeCanvasPage() {
   };
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
+    // This check ensures that if a drag operation just finished, this click event is ignored.
+    if (didPanRef.current || (event.target as HTMLElement).closest('[data-dragging="true"]')) {
+      didPanRef.current = false; // Reset pan flag if it was set
+      return;
+    }
+    
     event.stopPropagation(); 
 
     if (isLinkingMode) {
@@ -374,7 +390,8 @@ export default function KnowledgeCanvasPage() {
     const lowerSearchTerm = searchTerm.toLowerCase();
     const matchedInitialNodes = nodes.filter(node =>
       node.title.toLowerCase().includes(lowerSearchTerm) ||
-      (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm))
+      (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
+      (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
     );
 
     if (matchedInitialNodes.length === 0) {
@@ -409,9 +426,8 @@ export default function KnowledgeCanvasPage() {
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
     setCurrentNoteCreationCoords(null);
-    // Optionally reset currentNote and currentEditData here if desired
-    // setCurrentNote({ title: '', content: '' });
-    // setCurrentEditData({ title: '', content: '' });
+    setCurrentNote({ title: '', content: '', tagsString: '' });
+    setCurrentEditData({ title: '', content: '', tagsString: '' });
   };
 
 
@@ -462,7 +478,7 @@ export default function KnowledgeCanvasPage() {
             <AlertDialogDescription>
               {editingNodeId
                 ? "Update the details below."
-                : "Enter a title and content for your new note."}
+                : "Enter a title, content (optional), and tags (optional) for your new note."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-4 py-4">
@@ -499,6 +515,22 @@ export default function KnowledgeCanvasPage() {
                 />
               </div>
             )}
+             <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="dialog-tags" className="text-right">
+                Tags
+              </Label>
+              <Input
+                id="dialog-tags"
+                value={editingNodeId ? currentEditData.tagsString : currentNote.tagsString}
+                onChange={(e) =>
+                  editingNodeId
+                    ? setCurrentEditData((prev) => ({ ...prev, tagsString: e.target.value }))
+                    : setCurrentNote((prev) => ({ ...prev, tagsString: e.target.value }))
+                }
+                className="col-span-3"
+                placeholder="tag1, tag2, tag3"
+              />
+            </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleDialogClose}>Cancel</AlertDialogCancel>

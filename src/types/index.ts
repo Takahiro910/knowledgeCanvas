@@ -8,6 +8,7 @@ export interface NodeData {
   title: string; // For notes: title; For files: filename
   content?: string; // For notes: body of the note
   fileType?: FileType; // Relevant if type is 'file'
+  tags?: string[]; // Tags associated with the node
   x: number; // Position on canvas
   y: number; // Position on canvas
   width?: number; // Optional: for differing node sizes
@@ -19,3 +20,4 @@ export interface LinkData {
   sourceNodeId: string;
   targetNodeId: string;
 }
+
