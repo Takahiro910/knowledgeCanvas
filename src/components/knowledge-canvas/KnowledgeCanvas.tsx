@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { NodeData, LinkData } from '@/types';
 import { NodeItem } from './NodeItem';
@@ -10,7 +11,9 @@ interface KnowledgeCanvasProps {
   isLinkingMode: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onCanvasClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onFilesDrop: (files: File[]) => void;
+  onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -21,7 +24,9 @@ export function KnowledgeCanvas({
   isLinkingMode,
   onNodeClick,
   onCanvasClick,
+  onCanvasDoubleClick,
   onFilesDrop,
+  onNodeDrag,
   canvasRef,
 }: KnowledgeCanvasProps) {
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
@@ -40,18 +45,25 @@ export function KnowledgeCanvas({
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDraggingOver(false);
-    // Check if it's a file drop
     if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
       onFilesDrop(Array.from(event.dataTransfer.files));
     }
-    // Could also handle node drops here if implementing node dragging on canvas
   };
   
   const getNodeCenter = (node: NodeData) => {
     const width = node.width || 256;
-    const cardHeaderHeight = 60; // Approximate
-    const cardContentHeight = node.type === 'note' ? 90 : 60; // Approximate
-    const height = node.height || (cardHeaderHeight + (node.type === 'note' && node.content ? cardContentHeight : 0));
+    // Approximate heights based on NodeItem structure
+    const cardHeaderHeight = node.type === 'note' ? (node.title ? 40 : 20) : (node.title ? 40 : 20) ; // Simplified: assumes p-3 padding and icon/title
+    const cardContentHeight = node.type === 'note' && node.content ? 80 : 0; // Simplified: approximates content area
+    const baseCardHeight = node.type === 'note' ? 160 : 120; // From NodeItem minHeight + some padding for content
+
+    // Use explicit height if available, otherwise calculate based on content
+    let height = node.height;
+    if (!height) {
+        height = cardHeaderHeight + cardContentHeight + (node.type === 'note' ? 20 : 10) ; // Base padding for Card
+        height = Math.max(height, baseCardHeight); // Ensure minimum height
+    }
+
     return {
       x: node.x + width / 2,
       y: node.y + height / 2,
@@ -63,7 +75,7 @@ export function KnowledgeCanvas({
     <div
       ref={canvasRef}
       className={cn(
-        "w-full h-full relative bg-background overflow-auto p-4", // Added padding
+        "w-full h-full relative bg-background overflow-auto p-4",
         isDraggingOver && "outline-dashed outline-2 outline-accent",
         isLinkingMode && "cursor-crosshair"
       )}
@@ -71,6 +83,7 @@ export function KnowledgeCanvas({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={onCanvasClick}
+      onDoubleClick={onCanvasDoubleClick} // Added double click handler
     >
       {nodes.map((node) => (
         <NodeItem
@@ -79,9 +92,11 @@ export function KnowledgeCanvas({
           isSelected={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
           isLinkingCandidate={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
           onNodeClick={onNodeClick}
+          onNodeDrag={onNodeDrag} // Pass down drag handler
+          canvasRef={canvasRef} // Pass canvasRef for boundary checks if needed
         />
       ))}
-      <svg className="absolute top-0 left-0 w-[5000px] h-[5000px] pointer-events-none"> {/* Ensure SVG is large enough */}
+      <svg className="absolute top-0 left-0 w-[5000px] h-[5000px] pointer-events-none">
         {links.map((link) => {
           const sourceNode = nodes.find((n) => n.id === link.sourceNodeId);
           const targetNode = nodes.find((n) => n.id === link.targetNodeId);
@@ -107,11 +122,11 @@ export function KnowledgeCanvas({
           <marker
             id="arrow"
             viewBox="0 0 10 10"
-            refX="8" // Adjust to position arrow correctly at the end of the line
+            refX="8" 
             refY="5"
             markerWidth="6"
             markerHeight="6"
-            orient="auto-start-reverse" // Ensures arrow points towards target
+            orient="auto-start-reverse" 
           >
             <path d="M 0 0 L 10 5 L 0 10 z" className="fill-primary opacity-70" />
           </marker>
@@ -127,3 +142,5 @@ export function KnowledgeCanvas({
     </div>
   );
 }
+
+    

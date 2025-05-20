@@ -1,4 +1,5 @@
-import type React from 'react';
+
+import React from 'react';
 
 export function FileDocxIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -23,3 +24,5 @@ export function FileDocxIcon(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+    

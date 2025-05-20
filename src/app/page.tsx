@@ -2,7 +2,7 @@
 "use client";
 
 import type React from 'react';
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas';
 import { Toolbar } from '@/components/knowledge-canvas/Toolbar';
 import type { NodeData, LinkData, FileType as AppFileType, NodeType } from '@/types';
@@ -69,8 +69,6 @@ const traverseGraph = (
     const neighborNode = allNodes.find(n => n.id === neighborId);
     
     if (neighborNode) {
-        // Add link if it connects two nodes that will be in the result
-        // This condition is better handled after all nodes are collected, or by ensuring neighbor is also collected.
         collectedLinkIds.add(link.id);
         traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds);
     }
@@ -89,67 +87,69 @@ export default function KnowledgeCanvasPage() {
   
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
   const [currentNote, setCurrentNote] = useState<{ title: string; content: string }>({ title: '', content: '' });
+  const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
 
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const addNode = (type: NodeType, title: string, content?: string, fileType?: AppFileType) => {
+  const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, posX?: number, posY?: number) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    const randomX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
-    const randomY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
-
+    // Ensure canvasBounds is defined before using its properties
+    const defaultX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
+    const defaultY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
+  
     const newNode: NodeData = {
       id: crypto.randomUUID(),
       type,
       title,
       content,
       fileType,
-      x: Math.max(0, randomX), // Ensure positive coordinates
-      y: Math.max(0, randomY),
+      x: posX !== undefined ? posX : Math.max(0, defaultX),
+      y: posY !== undefined ? posY : Math.max(0, defaultY),
       width: 256, 
       height: type === 'note' ? 160 : 120,
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
-  };
+  }, [canvasRef]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) {
       handleFilesDrop(Array.from(files));
     }
-    // Reset file input to allow uploading the same file again
     if (event.target) {
       event.target.value = ""; 
     }
   };
   
-  const handleFilesDrop = (droppedFiles: File[]) => {
+  const handleFilesDrop = useCallback((droppedFiles: File[]) => {
     droppedFiles.forEach(file => {
       addNode('file', file.name, undefined, getFileType(file.name));
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
     });
-  };
+  }, [addNode, toast]);
 
-  const handleCreateNote = () => {
+  const handleCreateNote = useCallback(() => {
     setCurrentNote({ title: '', content: '' }); // Reset for new note
     setIsNoteDialogOpen(true);
-  };
+  }, []);
   
   const handleSaveNote = () => {
     if (!currentNote.title.trim()) {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    addNode('note', currentNote.title, currentNote.content);
+    const coords = currentNoteCreationCoords;
+    addNode('note', currentNote.title, currentNote.content, undefined, coords?.x, coords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
+    setCurrentNoteCreationCoords(null); // Reset coords
   };
-
 
   const handleToggleLinkMode = () => {
     setIsLinkingMode(!isLinkingMode);
-    setSelectedNodesForLinking([]); // Clear selections when toggling mode
+    setSelectedNodesForLinking([]); 
     if (!isLinkingMode) {
       toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." });
     } else {
@@ -158,16 +158,15 @@ export default function KnowledgeCanvasPage() {
   };
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent canvas click from firing
+    event.stopPropagation(); 
 
     if (isLinkingMode) {
       setSelectedNodesForLinking((prevSelected) => {
         if (prevSelected.includes(nodeId)) {
-          return prevSelected.filter((id) => id !== nodeId); // Deselect
+          return prevSelected.filter((id) => id !== nodeId); 
         }
         const newSelected = [...prevSelected, nodeId];
         if (newSelected.length === 2) {
-          // Create link
           const newLink: LinkData = {
             id: crypto.randomUUID(),
             sourceNodeId: newSelected[0],
@@ -175,21 +174,39 @@ export default function KnowledgeCanvasPage() {
           };
           setLinks((prevLinks) => [...prevLinks, newLink]);
           toast({ title: "Nodes Linked", description: "Link created successfully." });
-          return []; // Reset selection
+          return []; 
         }
         return newSelected;
       });
     } else {
-      // Handle other node click interactions, e.g., showing details (not implemented here)
       console.log("Node clicked (not in linking mode):", nodeId);
     }
   };
   
   const handleCanvasClick = () => {
     if (isLinkingMode) {
-      setSelectedNodesForLinking([]); // Deselect if clicked on canvas bg
+      setSelectedNodesForLinking([]); 
     }
   };
+
+  const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const canvasBounds = canvasRef.current?.getBoundingClientRect();
+    if (!canvasBounds || isLinkingMode) return;
+
+    const x = event.clientX - canvasBounds.left;
+    const y = event.clientY - canvasBounds.top;
+    
+    setCurrentNoteCreationCoords({ x, y });
+    handleCreateNote();
+  };
+
+  const handleNodeDrag = useCallback((nodeId: string, x: number, y: number) => {
+    setNodes(prevNodes =>
+      prevNodes.map(node =>
+        node.id === nodeId ? { ...node, x, y } : node
+      )
+    );
+  }, []);
 
   const filteredNodesAndLinks = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -245,7 +262,9 @@ export default function KnowledgeCanvasPage() {
           isLinkingMode={isLinkingMode}
           onNodeClick={handleNodeClick}
           onCanvasClick={handleCanvasClick}
+          onCanvasDoubleClick={handleCanvasDoubleClick}
           onFilesDrop={handleFilesDrop}
+          onNodeDrag={handleNodeDrag}
         />
       </main>
       <Toaster />
@@ -293,3 +312,5 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
+
+    
