@@ -103,6 +103,7 @@ export default function KnowledgeCanvasPage() {
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const isFirstRenderForLinkModeToast = useRef(true);
+  const previousLinksLengthRef = useRef(links.length);
 
 
   const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number) => {
@@ -225,7 +226,6 @@ export default function KnowledgeCanvasPage() {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
     setSelectedNodesForLinking([]);
     if (isPanning) setIsPanning(false);
-    // Toasts are now handled by the useEffect below
   };
 
   useEffect(() => {
@@ -240,6 +240,13 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Linking Mode Deactivated" });
     }
   }, [isLinkingMode, toast]);
+
+  useEffect(() => {
+    if (links.length > previousLinksLengthRef.current) {
+      toast({ title: "Nodes Linked", description: "Link created successfully." });
+    }
+    previousLinksLengthRef.current = links.length;
+  }, [links, toast]);
 
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
@@ -263,7 +270,7 @@ export default function KnowledgeCanvasPage() {
             targetNodeId: newSelected[1],
           };
           setLinks((prevLinks) => [...prevLinks, newLink]);
-          toast({ title: "Nodes Linked", description: "Link created successfully." });
+          // Toast moved to useEffect
           return [];
         }
         return newSelected;
