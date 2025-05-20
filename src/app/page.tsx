@@ -89,14 +89,30 @@ export default function KnowledgeCanvasPage() {
   const [currentNote, setCurrentNote] = useState<{ title: string; content: string }>({ title: '', content: '' });
   const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
 
+  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartCoordsRef = useRef<{ x: number, y: number } | null>(null);
+  const didPanRef = useRef(false);
+
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, posX?: number, posY?: number) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    // Ensure canvasBounds is defined before using its properties
-    const defaultX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
-    const defaultY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
+    
+    let worldX: number, worldY: number;
+
+    if (posX !== undefined && posY !== undefined) {
+      // posX and posY are already world coordinates if provided (e.g., from double click)
+      worldX = posX;
+      worldY = posY;
+    } else {
+      // Random placement, calculate view coordinates then convert to world
+      const randomViewX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
+      const randomViewY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
+      worldX = randomViewX - canvasOffset.x;
+      worldY = randomViewY - canvasOffset.y;
+    }
   
     const newNode: NodeData = {
       id: crypto.randomUUID(),
@@ -104,14 +120,14 @@ export default function KnowledgeCanvasPage() {
       title,
       content,
       fileType,
-      x: posX !== undefined ? posX : Math.max(0, defaultX),
-      y: posY !== undefined ? posY : Math.max(0, defaultY),
+      x: Math.max(0, worldX), // Ensure not negative due to panning off-screen
+      y: Math.max(0, worldY),
       width: 256, 
       height: type === 'note' ? 160 : 120,
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
-  }, [canvasRef]);
+  }, [canvasRef, canvasOffset.x, canvasOffset.y]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -124,6 +140,10 @@ export default function KnowledgeCanvasPage() {
   };
   
   const handleFilesDrop = useCallback((droppedFiles: File[]) => {
+    // For now, files are added at random positions by addNode's default behavior
+    // If specific drop coordinates are needed, they'd need conversion:
+    // const worldX = dropViewX - canvasOffset.x;
+    // const worldY = dropViewY - canvasOffset.y;
     droppedFiles.forEach(file => {
       addNode('file', file.name, undefined, getFileType(file.name));
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
@@ -140,8 +160,8 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    const coords = currentNoteCreationCoords;
-    addNode('note', currentNote.title, currentNote.content, undefined, coords?.x, coords?.y);
+    // currentNoteCreationCoords are already world coordinates
+    addNode('note', currentNote.title, currentNote.content, undefined, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null); // Reset coords
@@ -150,6 +170,7 @@ export default function KnowledgeCanvasPage() {
   const handleToggleLinkMode = () => {
     setIsLinkingMode(!isLinkingMode);
     setSelectedNodesForLinking([]); 
+    if (isPanning) setIsPanning(false); // Ensure panning stops if linking mode is toggled
     if (!isLinkingMode) {
       toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." });
     } else {
@@ -179,11 +200,15 @@ export default function KnowledgeCanvasPage() {
         return newSelected;
       });
     } else {
-      console.log("Node clicked (not in linking mode):", nodeId);
+      // console.log("Node clicked (not in linking mode):", nodeId);
     }
   };
   
-  const handleCanvasClick = () => {
+  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (didPanRef.current) {
+      didPanRef.current = false;
+      return;
+    }
     if (isLinkingMode) {
       setSelectedNodesForLinking([]); 
     }
@@ -191,12 +216,15 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode) return;
+    if (!canvasBounds || isLinkingMode || isPanning) return;
 
-    const x = event.clientX - canvasBounds.left;
-    const y = event.clientY - canvasBounds.top;
+    const viewX = event.clientX - canvasBounds.left;
+    const viewY = event.clientY - canvasBounds.top;
     
-    setCurrentNoteCreationCoords({ x, y });
+    const worldX = viewX - canvasOffset.x;
+    const worldY = viewY - canvasOffset.y;
+    
+    setCurrentNoteCreationCoords({ x: worldX, y: worldY });
     handleCreateNote();
   };
 
@@ -207,6 +235,58 @@ export default function KnowledgeCanvasPage() {
       )
     );
   }, []);
+
+  // Panning Handlers
+  const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isLinkingMode) return; // Only left click, not in linking mode
+    
+    // Check if the target is a node or a child of a node
+    let targetElement = event.target as HTMLElement;
+    while (targetElement && targetElement !== event.currentTarget) {
+        if (targetElement.closest('[data-node-item="true"]')) { // Assuming NodeItem has data-node-item="true"
+            return; // Clicked on a node, don't start pan
+        }
+        targetElement = targetElement.parentElement as HTMLElement;
+    }
+
+    event.preventDefault();
+    didPanRef.current = false;
+    setIsPanning(true);
+    panStartCoordsRef.current = {
+      x: event.clientX - canvasOffset.x,
+      y: event.clientY - canvasOffset.y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isPanning || !panStartCoordsRef.current) return;
+      didPanRef.current = true;
+      const newX = event.clientX - panStartCoordsRef.current.x;
+      const newY = event.clientY - panStartCoordsRef.current.y;
+      setCanvasOffset({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsPanning(false);
+      panStartCoordsRef.current = null;
+      // didPanRef will be reset by the click handler if no drag occurred
+    };
+
+    if (isPanning) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isPanning, canvasOffset.x, canvasOffset.y]);
+
 
   const filteredNodesAndLinks = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -260,9 +340,12 @@ export default function KnowledgeCanvasPage() {
           links={filteredNodesAndLinks.displayLinks}
           selectedNodeIdsForLinking={selectedNodesForLinking}
           isLinkingMode={isLinkingMode}
+          isPanning={isPanning}
+          canvasOffset={canvasOffset}
           onNodeClick={handleNodeClick}
           onCanvasClick={handleCanvasClick}
           onCanvasDoubleClick={handleCanvasDoubleClick}
+          onCanvasMouseDownForPan={handleCanvasMouseDownForPan}
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
         />
@@ -312,5 +395,3 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
-
-    

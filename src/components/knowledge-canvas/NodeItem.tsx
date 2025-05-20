@@ -13,14 +13,14 @@ interface NodeItemProps {
   isLinkingCandidate: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
-  canvasRef: React.RefObject<HTMLDivElement>;
-  isLinkingMode: boolean; // Explicitly add this prop
+  canvasRef: React.RefObject<HTMLDivElement>; // Technically, this ref is for the viewport. Drag boundaries might need world context.
+  isLinkingMode: boolean; 
 }
 
 export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef, isLinkingMode: propsIsLinkingMode }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
-  const didDragRef = useRef(false); // To distinguish drag from click
+  const didDragRef = useRef(false); 
 
   const renderIcon = () => {
     if (node.type === 'note') {
@@ -46,13 +46,11 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
 
-    // If in linking mode, all mousedown events on nodes should be treated as potential link selections, not drags.
     if (propsIsLinkingMode) {
-        onNodeClick(node.id, e); // Propagate click for linking logic
-        return; // Prevent drag initiation
+        onNodeClick(node.id, e); 
+        return; 
     }
 
-    // If not in linking mode, proceed with drag logic
     e.preventDefault(); 
     e.stopPropagation(); 
 
@@ -63,7 +61,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       nodeX: node.x,
       nodeY: node.y,
     };
-    setIsDragging(true); // This triggers the useEffect to add listeners
+    setIsDragging(true); 
   };
 
   const mouseMoveHandler = useCallback((e: MouseEvent) => {
@@ -75,24 +73,26 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     let newX = dragStartRef.current.nodeX + dx;
     let newY = dragStartRef.current.nodeY + dy;
 
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    if (!canvasRect.width || !canvasRect.height) {
-        // Canvas dimensions not yet available or invalid, skip drag update
-        return;
-    }
+    // Node coordinates (node.x, node.y) are world coordinates.
+    // Boundary checks should ideally be against the world boundaries (e.g., 0 to 5000px)
+    // For now, it constrains to current visible area IF canvasRef points to viewport.
+    // If canvasRef is the outer container and nodes are inside a transformed div, this logic needs adjustment
+    // or canvasRef should point to the pannable area itself for correct boundary checks.
+    // Assuming node.x, node.y are absolute within the pannable world, let's keep simple boundary for now.
     
-    const nodeWidth = node.width || 256;
-    const nodeHeight = node.height || (node.type === 'note' ? 160 : 120);
-    
-    newX = Math.max(0, Math.min(newX, canvasRect.width - nodeWidth));
-    newY = Math.max(0, Math.min(newY, canvasRect.height - nodeHeight));
+    // Simplistic boundary check (can be improved to consider actual world size)
+    newX = Math.max(0, newX); // Prevent dragging to negative coordinates in the world
+    newY = Math.max(0, newY);
+    // newX = Math.max(0, Math.min(newX, WORLD_WIDTH - (node.width || 256)));
+    // newY = Math.max(0, Math.min(newY, WORLD_HEIGHT - (node.height || 120)));
+
 
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { 
         didDragRef.current = true;
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [node.id, node.width, node.height, node.type, onNodeDrag, canvasRef]);
+  }, [node.id, onNodeDrag, canvasRef]); // node.width, node.height removed as they are less critical for basic drag logic here.
 
 
   const mouseUpHandler = useCallback(() => {
@@ -105,7 +105,6 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       document.addEventListener('mousemove', mouseMoveHandler);
       document.addEventListener('mouseup', mouseUpHandler);
     } else {
-      // Ensure dragStartRef is cleared if isDragging becomes false through other means (though unlikely here)
       dragStartRef.current = null;
     }
 
@@ -117,15 +116,13 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
 
   const handleClick = (e: React.MouseEvent) => {
-    // If it was a drag AND we are NOT in linking mode, suppress the click.
     if (didDragRef.current && !propsIsLinkingMode) {
       didDragRef.current = false; 
       e.stopPropagation(); 
       return;
     }
-    // Otherwise (it was a click, OR we are in linking mode), proceed with onNodeClick.
     onNodeClick(node.id, e);
-    didDragRef.current = false; // Reset for next interaction
+    didDragRef.current = false; 
   };
 
   const nodeWidth = node.width || 256;
@@ -133,13 +130,11 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
   return (
     <Card
+      data-node-item="true" // Added for pan detection to ignore clicks on nodes
       className={cn(
         "absolute shadow-lg hover:shadow-xl transition-shadow duration-200",
         "flex flex-col", 
-        // isSelected is used for styling when a node is chosen for linking
         isSelected && "ring-2 ring-accent shadow-accent/50", 
-        // isLinkingCandidate was identical to isSelected, if specific styling is needed, it can be differentiated
-        // isLinkingCandidate && "ring-2 ring-primary shadow-primary/50", 
         isDragging ? "cursor-grabbing shadow-2xl z-10" : "cursor-grab"
       )}
       style={{ 
