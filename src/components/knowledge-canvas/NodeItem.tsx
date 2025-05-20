@@ -13,14 +13,14 @@ interface NodeItemProps {
   isLinkingCandidate: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
-  canvasRef: React.RefObject<HTMLDivElement>; // Technically, this ref is for the viewport. Drag boundaries might need world context.
-  isLinkingMode: boolean; 
+  canvasRef: React.RefObject<HTMLDivElement>;
+  isLinkingMode: boolean;
 }
 
 export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef, isLinkingMode: propsIsLinkingMode }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
-  const didDragRef = useRef(false); 
+  const didDragRef = useRef(false);
 
   const renderIcon = () => {
     if (node.type === 'note') {
@@ -47,12 +47,12 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     if (e.button !== 0) return;
 
     if (propsIsLinkingMode) {
-        onNodeClick(node.id, e); 
-        return; 
+        onNodeClick(node.id, e);
+        return;
     }
 
-    e.preventDefault(); 
-    e.stopPropagation(); 
+    e.preventDefault();
+    e.stopPropagation();
 
     didDragRef.current = false;
     dragStartRef.current = {
@@ -61,7 +61,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       nodeX: node.x,
       nodeY: node.y,
     };
-    setIsDragging(true); 
+    setIsDragging(true);
   };
 
   const mouseMoveHandler = useCallback((e: MouseEvent) => {
@@ -69,35 +69,24 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
-    
+
     let newX = dragStartRef.current.nodeX + dx;
     let newY = dragStartRef.current.nodeY + dy;
 
-    // Node coordinates (node.x, node.y) are world coordinates.
-    // Boundary checks should ideally be against the world boundaries (e.g., 0 to 5000px)
-    // For now, it constrains to current visible area IF canvasRef points to viewport.
-    // If canvasRef is the outer container and nodes are inside a transformed div, this logic needs adjustment
-    // or canvasRef should point to the pannable area itself for correct boundary checks.
-    // Assuming node.x, node.y are absolute within the pannable world, let's keep simple boundary for now.
-    
-    // Simplistic boundary check (can be improved to consider actual world size)
-    newX = Math.max(0, newX); // Prevent dragging to negative coordinates in the world
+    newX = Math.max(0, newX);
     newY = Math.max(0, newY);
-    // newX = Math.max(0, Math.min(newX, WORLD_WIDTH - (node.width || 256)));
-    // newY = Math.max(0, Math.min(newY, WORLD_HEIGHT - (node.height || 120)));
 
-
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { 
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
         didDragRef.current = true;
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [node.id, onNodeDrag, canvasRef]); // node.width, node.height removed as they are less critical for basic drag logic here.
+  }, [node.id, onNodeDrag, canvasRef]);
 
 
   const mouseUpHandler = useCallback(() => {
     setIsDragging(false);
-    dragStartRef.current = null; 
+    dragStartRef.current = null;
   }, [setIsDragging]);
 
   useEffect(() => {
@@ -105,7 +94,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       document.addEventListener('mousemove', mouseMoveHandler);
       document.addEventListener('mouseup', mouseUpHandler);
     } else {
-      dragStartRef.current = null;
+      dragStartRef.current = null; // Clear ref when not dragging
     }
 
     return () => {
@@ -117,12 +106,16 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
   const handleClick = (e: React.MouseEvent) => {
     if (didDragRef.current && !propsIsLinkingMode) {
-      didDragRef.current = false; 
-      e.stopPropagation(); 
+      didDragRef.current = false;
+      e.stopPropagation();
       return;
     }
-    onNodeClick(node.id, e);
-    didDragRef.current = false; 
+    // In linking mode, mousedown already handles the onNodeClick.
+    // Avoid double-triggering or interfering if it's just a click without drag.
+    if (!propsIsLinkingMode) {
+        onNodeClick(node.id, e);
+    }
+    didDragRef.current = false;
   };
 
   const nodeWidth = node.width || 256;
@@ -130,22 +123,23 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
   return (
     <Card
-      data-node-item="true" // Added for pan detection to ignore clicks on nodes
+      data-node-item="true"
       className={cn(
         "absolute shadow-lg hover:shadow-xl transition-shadow duration-200",
-        "flex flex-col", 
-        isSelected && "ring-2 ring-accent shadow-accent/50", 
-        isDragging ? "cursor-grabbing shadow-2xl z-10" : "cursor-grab"
+        "flex flex-col",
+        isSelected && "ring-2 ring-accent shadow-accent/50",
+        isDragging ? "cursor-grabbing shadow-2xl z-10" :
+          (propsIsLinkingMode ? "cursor-pointer" : "cursor-grab")
       )}
-      style={{ 
-        left: node.x, 
-        top: node.y, 
-        width: nodeWidth, 
-        minHeight: node.type === 'note' ? 160 : 120, 
-        height: nodeHeight 
+      style={{
+        left: node.x,
+        top: node.y,
+        width: nodeWidth,
+        minHeight: node.type === 'note' ? 160 : 120,
+        height: nodeHeight
       }}
       onMouseDown={handleMouseDown}
-      onClick={handleClick}
+      onClick={handleClick} // Keep onClick for accessibility and cases where mousedown doesn't cover all interactions
       aria-selected={isSelected}
     >
       <CardHeader className="p-3">
@@ -161,7 +155,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       </CardHeader>
       {node.type === 'note' && node.content && (
         <CardContent className="p-3 text-sm overflow-hidden flex-grow">
-          <p className="whitespace-pre-wrap break-words line-clamp-4"> 
+          <p className="whitespace-pre-wrap break-words line-clamp-4">
             {node.content}
           </p>
         </CardContent>
