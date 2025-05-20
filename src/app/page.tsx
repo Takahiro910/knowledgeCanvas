@@ -59,7 +59,7 @@ const traverseGraph = (
     collectedNodes.set(startNodeId, currentNode);
   } else {
     visitedNodesInPath.delete(startNodeId); // Backtrack
-    return; 
+    return;
   }
 
   const relatedLinks = allLinks.filter(link => link.sourceNodeId === startNodeId || link.targetNodeId === startNodeId);
@@ -67,7 +67,7 @@ const traverseGraph = (
   for (const link of relatedLinks) {
     const neighborId = link.sourceNodeId === startNodeId ? link.targetNodeId : link.sourceNodeId;
     const neighborNode = allNodes.find(n => n.id === neighborId);
-    
+
     if (neighborNode) {
         collectedLinkIds.add(link.id);
         traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds);
@@ -84,7 +84,7 @@ export default function KnowledgeCanvasPage() {
   const [searchDepth, setSearchDepth] = useState<number>(1);
   const [isLinkingMode, setIsLinkingMode] = useState(false);
   const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]);
-  
+
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
   const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
   const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
@@ -102,10 +102,12 @@ export default function KnowledgeCanvasPage() {
 
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
+  const isFirstRenderForLinkModeToast = useRef(true);
+
 
   const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    
+
     let worldX: number, worldY: number;
 
     if (posX !== undefined && posY !== undefined) {
@@ -119,7 +121,7 @@ export default function KnowledgeCanvasPage() {
       worldX = (randomViewX - canvasOffset.x) / zoomLevel;
       worldY = (randomViewY - canvasOffset.y) / zoomLevel;
     }
-  
+
     const newNode: NodeData = {
       id: crypto.randomUUID(),
       type,
@@ -127,9 +129,9 @@ export default function KnowledgeCanvasPage() {
       content,
       fileType,
       tags: tags || [],
-      x: Math.max(0, worldX), 
+      x: Math.max(0, worldX),
       y: Math.max(0, worldY),
-      width: 256, 
+      width: 256,
       height: type === 'note' ? 160 : 120, // TODO: Adjust height based on content/tags?
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
@@ -142,24 +144,24 @@ export default function KnowledgeCanvasPage() {
       handleFilesDrop(Array.from(files));
     }
     if (event.target) {
-      event.target.value = ""; 
+      event.target.value = "";
     }
   };
-  
+
   const handleFilesDrop = useCallback((droppedFiles: File[], dropX?: number, dropY?: number) => {
     droppedFiles.forEach(file => {
-      addNode('file', file.name, undefined, getFileType(file.name), [], dropX, dropY); // Initialize with empty tags
+      addNode('file', file.name, undefined, getFileType(file.name), [], dropX, dropY);
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
     });
   }, [addNode, toast]);
 
   const handleCreateNote = useCallback(() => {
-    setCurrentNote({ title: '', content: '', tagsString: '' }); 
+    setCurrentNote({ title: '', content: '', tagsString: '' });
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
   }, []);
-  
+
   const handleSaveNote = () => {
     if (!currentNote.title.trim()) {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
@@ -169,15 +171,15 @@ export default function KnowledgeCanvasPage() {
     addNode('note', currentNote.title, currentNote.content, undefined, parsedTags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
-    setCurrentNoteCreationCoords(null); 
+    setCurrentNoteCreationCoords(null);
   };
 
   const handleNodeDoubleClick = useCallback((nodeId: string) => {
     const nodeToEdit = nodes.find(n => n.id === nodeId);
     if (nodeToEdit) {
       setEditingNodeId(nodeId);
-      setCurrentEditData({ 
-        title: nodeToEdit.title, 
+      setCurrentEditData({
+        title: nodeToEdit.title,
         content: nodeToEdit.content || '',
         tagsString: nodeToEdit.tags ? nodeToEdit.tags.join(', ') : ''
       });
@@ -198,7 +200,7 @@ export default function KnowledgeCanvasPage() {
         setEditingNodeId(null);
         return;
     }
-    
+
     const parsedTags = currentEditData.tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
 
     setNodes(prevNodes =>
@@ -220,29 +222,38 @@ export default function KnowledgeCanvasPage() {
 
 
   const handleToggleLinkMode = () => {
-    setIsLinkingMode(!isLinkingMode);
-    setSelectedNodesForLinking([]); 
-    if (isPanning) setIsPanning(false); 
-    if (!isLinkingMode) {
+    setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
+    setSelectedNodesForLinking([]);
+    if (isPanning) setIsPanning(false);
+    // Toasts are now handled by the useEffect below
+  };
+
+  useEffect(() => {
+    if (isFirstRenderForLinkModeToast.current) {
+      isFirstRenderForLinkModeToast.current = false;
+      return;
+    }
+
+    if (isLinkingMode) {
       toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." });
     } else {
       toast({ title: "Linking Mode Deactivated" });
     }
-  };
+  }, [isLinkingMode, toast]);
+
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
-    // This check ensures that if a drag operation just finished, this click event is ignored.
     if (didPanRef.current || (event.target as HTMLElement).closest('[data-dragging="true"]')) {
-      didPanRef.current = false; // Reset pan flag if it was set
+      didPanRef.current = false;
       return;
     }
-    
-    event.stopPropagation(); 
+
+    event.stopPropagation();
 
     if (isLinkingMode) {
       setSelectedNodesForLinking((prevSelected) => {
         if (prevSelected.includes(nodeId)) {
-          return prevSelected.filter((id) => id !== nodeId); 
+          return prevSelected.filter((id) => id !== nodeId);
         }
         const newSelected = [...prevSelected, nodeId];
         if (newSelected.length === 2) {
@@ -253,7 +264,7 @@ export default function KnowledgeCanvasPage() {
           };
           setLinks((prevLinks) => [...prevLinks, newLink]);
           toast({ title: "Nodes Linked", description: "Link created successfully." });
-          return []; 
+          return [];
         }
         return newSelected;
       });
@@ -261,14 +272,14 @@ export default function KnowledgeCanvasPage() {
       // console.log("Node clicked (not in linking mode):", nodeId);
     }
   };
-  
+
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (didPanRef.current) {
       didPanRef.current = false;
       return;
     }
     if (isLinkingMode) {
-      setSelectedNodesForLinking([]); 
+      setSelectedNodesForLinking([]);
     }
   };
 
@@ -276,7 +287,6 @@ export default function KnowledgeCanvasPage() {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen) return;
 
-    // Prevent if double click is on a node item (handled by NodeItem's onDoubleClick)
     let target = event.target as HTMLElement;
     while (target && target !== event.currentTarget) {
         if (target.closest('[data-node-item="true"]')) {
@@ -287,10 +297,10 @@ export default function KnowledgeCanvasPage() {
 
     const viewX = event.clientX - canvasBounds.left;
     const viewY = event.clientY - canvasBounds.top;
-    
+
     const worldX = (viewX - canvasOffset.x) / zoomLevel;
     const worldY = (viewY - canvasOffset.y) / zoomLevel;
-    
+
     setCurrentNoteCreationCoords({ x: worldX, y: worldY });
     handleCreateNote();
   };
@@ -304,12 +314,12 @@ export default function KnowledgeCanvasPage() {
   }, []);
 
   const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || isLinkingMode) return; 
-    
+    if (event.button !== 0 || isLinkingMode) return;
+
     let targetElement = event.target as HTMLElement;
     while (targetElement && targetElement !== event.currentTarget) {
-        if (targetElement.closest('[data-node-item="true"]')) { 
-            return; 
+        if (targetElement.closest('[data-node-item="true"]')) {
+            return;
         }
         targetElement = targetElement.parentElement as HTMLElement;
     }
@@ -368,16 +378,14 @@ export default function KnowledgeCanvasPage() {
     const mouseXInView = event.clientX - canvasBounds.left;
     const mouseYInView = event.clientY - canvasBounds.top;
 
-    // World coordinates of the point under the mouse before zoom
     const worldXBeforeZoom = (mouseXInView - canvasOffset.x) / zoomLevel;
     const worldYBeforeZoom = (mouseYInView - canvasOffset.y) / zoomLevel;
-    
+
     setZoomLevel(newZoomLevel);
 
-    // New offset to keep the point under the mouse stationary
     const newOffsetX = mouseXInView - worldXBeforeZoom * newZoomLevel;
     const newOffsetY = mouseYInView - worldYBeforeZoom * newZoomLevel;
-    
+
     setCanvasOffset({ x: newOffsetX, y: newOffsetY });
   };
 
@@ -405,9 +413,9 @@ export default function KnowledgeCanvasPage() {
       const visitedNodesInPath = new Set<string>();
       traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIdsSet);
     });
-    
+
     const displayNodes = Array.from(collectedNodesMap.values());
-    const displayLinks = links.filter(link => 
+    const displayLinks = links.filter(link =>
         collectedLinkIdsSet.has(link.id) &&
         collectedNodesMap.has(link.sourceNodeId) &&
         collectedNodesMap.has(link.targetNodeId)
@@ -464,14 +472,14 @@ export default function KnowledgeCanvasPage() {
         />
       </main>
       <Toaster />
-      
+
       <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {editingNodeId 
-                ? currentEditingNodeDetails?.type === 'note' 
-                  ? `Edit Note: ${currentEditingNodeDetails?.title}` 
+              {editingNodeId
+                ? currentEditingNodeDetails?.type === 'note'
+                  ? `Edit Note: ${currentEditingNodeDetails?.title}`
                   : `Edit File: ${currentEditingNodeDetails?.title}`
                 : "Create New Note"}
             </AlertDialogTitle>
@@ -489,9 +497,9 @@ export default function KnowledgeCanvasPage() {
               <Input
                 id="dialog-title"
                 value={editingNodeId ? currentEditData.title : currentNote.title}
-                onChange={(e) => 
-                  editingNodeId 
-                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value })) 
+                onChange={(e) =>
+                  editingNodeId
+                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
                     : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
                 }
                 className="col-span-3"
@@ -505,9 +513,9 @@ export default function KnowledgeCanvasPage() {
                 <Textarea
                   id="dialog-content"
                   value={editingNodeId ? currentEditData.content : currentNote.content}
-                  onChange={(e) => 
-                    editingNodeId 
-                      ? setCurrentEditData(prev => ({ ...prev, content: e.target.value })) 
+                  onChange={(e) =>
+                    editingNodeId
+                      ? setCurrentEditData(prev => ({ ...prev, content: e.target.value }))
                       : setCurrentNote(prev => ({ ...prev, content: e.target.value }))
                   }
                   className="col-span-3 min-h-[100px]"
