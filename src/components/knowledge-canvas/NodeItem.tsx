@@ -12,7 +12,7 @@ interface NodeItemProps {
   isSelected: boolean;
   isLinkingCandidate: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
-  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void; // Added prop
+  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
@@ -24,7 +24,7 @@ export function NodeItem({
   isSelected, 
   isLinkingCandidate, 
   onNodeClick, 
-  onNodeDoubleClick, // Destructure new prop
+  onNodeDoubleClick,
   onNodeDrag, 
   canvasRef, 
   isLinkingMode: propsIsLinkingMode, 
@@ -56,19 +56,15 @@ export function NodeItem({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-
-    if (propsIsLinkingMode) {
-        onNodeClick(node.id, e); // For linking mode, single click is handled by onNodeClick
+    if (e.button !== 0 || propsIsLinkingMode) {
+        // If not left click, or if in linking mode,
+        // do not initiate drag. Let handleClick handle the click for linking.
         return;
     }
-
-    // Prevent starting drag if the event is part of a double click sequence for editing
-    // This is implicitly handled as double click will open a dialog and change focus.
-    // However, ensure drag doesn't start if it's on a control inside the card potentially.
     
-    e.preventDefault(); // Prevent text selection during drag
-    e.stopPropagation(); // Prevent canvas pan
+    // This part now only runs if it's a left click AND NOT in linking mode.
+    e.preventDefault(); 
+    e.stopPropagation(); // Prevent canvas pan when starting a node drag
 
     didDragRef.current = false;
     dragStartRef.current = {
@@ -100,13 +96,13 @@ export function NodeItem({
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [node.id, onNodeDrag, canvasRef, zoomLevel]); 
+  }, [node.id, onNodeDrag, canvasRef, zoomLevel, node.x, node.y]); // Added node.x, node.y to dependencies
 
 
   const mouseUpHandler = useCallback(() => {
     setIsDragging(false);
     // dragStartRef.current is reset in useEffect cleanup for isDragging
-  }, []); // Removed setIsDragging from dependencies as it can cause issues.
+  }, []);
 
   useEffect(() => {
     if (isDragging) {
@@ -134,7 +130,6 @@ export function NodeItem({
       e.stopPropagation();
     }
     onNodeClick(node.id, e);
-    // didDragRef.current is reset at the start of this function or in mouse down
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
@@ -167,7 +162,7 @@ export function NodeItem({
       }}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick} // Use the new handler
+      onDoubleClick={handleDoubleClick}
       aria-selected={isSelected}
     >
       <CardHeader className="p-3">
@@ -191,4 +186,3 @@ export function NodeItem({
     </Card>
   );
 }
-
