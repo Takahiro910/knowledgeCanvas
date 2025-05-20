@@ -47,10 +47,13 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     if (e.button !== 0) return;
 
     if (propsIsLinkingMode) {
+        // onNodeClick (which is page.tsx#handleNodeClick) is called.
+        // page.tsx#handleNodeClick already calls e.stopPropagation() for the mousedown event.
         onNodeClick(node.id, e);
         return;
     }
 
+    // Logic for starting a drag when not in linking mode
     e.preventDefault();
     e.stopPropagation();
 
@@ -94,7 +97,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       document.addEventListener('mousemove', mouseMoveHandler);
       document.addEventListener('mouseup', mouseUpHandler);
     } else {
-      dragStartRef.current = null; // Clear ref when not dragging
+      dragStartRef.current = null; 
     }
 
     return () => {
@@ -105,17 +108,29 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
 
   const handleClick = (e: React.MouseEvent) => {
-    if (didDragRef.current && !propsIsLinkingMode) {
+    // If in linking mode, the selection logic is handled by onMouseDown.
+    // We must stop propagation here to prevent the click from bubbling to the canvas
+    // and triggering handleCanvasClick (from page.tsx), which would clear selections.
+    if (propsIsLinkingMode) {
+      e.stopPropagation();
+      didDragRef.current = false; // Reset in case, though mousedown should handle linking clicks
+      return;
+    }
+
+    // Logic for non-linking mode:
+    // If didDragRef is true, it means a drag just completed.
+    // We don't want to treat the mouseup that completes a drag as a click on the node.
+    // Also, stop propagation so the canvas click handler doesn't fire after a drag.
+    if (didDragRef.current) {
       didDragRef.current = false;
       e.stopPropagation();
       return;
     }
-    // In linking mode, mousedown already handles the onNodeClick.
-    // Avoid double-triggering or interfering if it's just a click without drag.
-    if (!propsIsLinkingMode) {
-        onNodeClick(node.id, e);
-    }
-    didDragRef.current = false;
+
+    // If it wasn't a drag and not in linking mode, it's a genuine click on the node.
+    // onNodeClick (page.tsx#handleNodeClick) will handle this and call e.stopPropagation().
+    onNodeClick(node.id, e);
+    didDragRef.current = false; 
   };
 
   const nodeWidth = node.width || 256;
@@ -139,7 +154,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
         height: nodeHeight
       }}
       onMouseDown={handleMouseDown}
-      onClick={handleClick} // Keep onClick for accessibility and cases where mousedown doesn't cover all interactions
+      onClick={handleClick}
       aria-selected={isSelected}
     >
       <CardHeader className="p-3">
