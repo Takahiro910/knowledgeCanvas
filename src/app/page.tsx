@@ -93,6 +93,7 @@ export default function KnowledgeCanvasPage() {
   const [isPanning, setIsPanning] = useState(false);
   const panStartCoordsRef = useRef<{ x: number, y: number } | null>(null);
   const didPanRef = useRef(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
 
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -110,8 +111,8 @@ export default function KnowledgeCanvasPage() {
       // Random placement, calculate view coordinates then convert to world
       const randomViewX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
       const randomViewY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
-      worldX = randomViewX - canvasOffset.x;
-      worldY = randomViewY - canvasOffset.y;
+      worldX = (randomViewX - canvasOffset.x) / zoomLevel;
+      worldY = (randomViewY - canvasOffset.y) / zoomLevel;
     }
   
     const newNode: NodeData = {
@@ -120,14 +121,14 @@ export default function KnowledgeCanvasPage() {
       title,
       content,
       fileType,
-      x: Math.max(0, worldX), // Ensure not negative due to panning off-screen
+      x: Math.max(0, worldX), 
       y: Math.max(0, worldY),
       width: 256, 
       height: type === 'note' ? 160 : 120,
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
-  }, [canvasRef, canvasOffset.x, canvasOffset.y]);
+  }, [canvasRef, canvasOffset.x, canvasOffset.y, zoomLevel]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -140,10 +141,6 @@ export default function KnowledgeCanvasPage() {
   };
   
   const handleFilesDrop = useCallback((droppedFiles: File[]) => {
-    // For now, files are added at random positions by addNode's default behavior
-    // If specific drop coordinates are needed, they'd need conversion:
-    // const worldX = dropViewX - canvasOffset.x;
-    // const worldY = dropViewY - canvasOffset.y;
     droppedFiles.forEach(file => {
       addNode('file', file.name, undefined, getFileType(file.name));
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
@@ -151,7 +148,7 @@ export default function KnowledgeCanvasPage() {
   }, [addNode, toast]);
 
   const handleCreateNote = useCallback(() => {
-    setCurrentNote({ title: '', content: '' }); // Reset for new note
+    setCurrentNote({ title: '', content: '' }); 
     setIsNoteDialogOpen(true);
   }, []);
   
@@ -160,17 +157,16 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    // currentNoteCreationCoords are already world coordinates
     addNode('note', currentNote.title, currentNote.content, undefined, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
-    setCurrentNoteCreationCoords(null); // Reset coords
+    setCurrentNoteCreationCoords(null); 
   };
 
   const handleToggleLinkMode = () => {
     setIsLinkingMode(!isLinkingMode);
     setSelectedNodesForLinking([]); 
-    if (isPanning) setIsPanning(false); // Ensure panning stops if linking mode is toggled
+    if (isPanning) setIsPanning(false); 
     if (!isLinkingMode) {
       toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." });
     } else {
@@ -221,8 +217,8 @@ export default function KnowledgeCanvasPage() {
     const viewX = event.clientX - canvasBounds.left;
     const viewY = event.clientY - canvasBounds.top;
     
-    const worldX = viewX - canvasOffset.x;
-    const worldY = viewY - canvasOffset.y;
+    const worldX = (viewX - canvasOffset.x) / zoomLevel;
+    const worldY = (viewY - canvasOffset.y) / zoomLevel;
     
     setCurrentNoteCreationCoords({ x: worldX, y: worldY });
     handleCreateNote();
@@ -236,15 +232,13 @@ export default function KnowledgeCanvasPage() {
     );
   }, []);
 
-  // Panning Handlers
   const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || isLinkingMode) return; // Only left click, not in linking mode
+    if (event.button !== 0 || isLinkingMode) return; 
     
-    // Check if the target is a node or a child of a node
     let targetElement = event.target as HTMLElement;
     while (targetElement && targetElement !== event.currentTarget) {
-        if (targetElement.closest('[data-node-item="true"]')) { // Assuming NodeItem has data-node-item="true"
-            return; // Clicked on a node, don't start pan
+        if (targetElement.closest('[data-node-item="true"]')) { 
+            return; 
         }
         targetElement = targetElement.parentElement as HTMLElement;
     }
@@ -270,7 +264,6 @@ export default function KnowledgeCanvasPage() {
     const handleMouseUp = () => {
       setIsPanning(false);
       panStartCoordsRef.current = null;
-      // didPanRef will be reset by the click handler if no drag occurred
     };
 
     if (isPanning) {
@@ -286,6 +279,36 @@ export default function KnowledgeCanvasPage() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isPanning, canvasOffset.x, canvasOffset.y]);
+
+
+  const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const zoomSpeed = 0.1;
+    const minZoom = 0.2;
+    const maxZoom = 2.0;
+
+    const newZoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel - event.deltaY * zoomSpeed * 0.01));
+
+    if (newZoomLevel === zoomLevel) return; // No change
+
+    const canvasBounds = canvasRef.current?.getBoundingClientRect();
+    if (!canvasBounds) return;
+
+    const mouseXInView = event.clientX - canvasBounds.left;
+    const mouseYInView = event.clientY - canvasBounds.top;
+
+    // World coordinates of the point under the mouse before zoom
+    const worldXBeforeZoom = (mouseXInView - canvasOffset.x) / zoomLevel;
+    const worldYBeforeZoom = (mouseYInView - canvasOffset.y) / zoomLevel;
+    
+    setZoomLevel(newZoomLevel);
+
+    // New offset to keep the point under the mouse stationary
+    const newOffsetX = mouseXInView - worldXBeforeZoom * newZoomLevel;
+    const newOffsetY = mouseYInView - worldYBeforeZoom * newZoomLevel;
+    
+    setCanvasOffset({ x: newOffsetX, y: newOffsetY });
+  };
 
 
   const filteredNodesAndLinks = useMemo(() => {
@@ -342,10 +365,12 @@ export default function KnowledgeCanvasPage() {
           isLinkingMode={isLinkingMode}
           isPanning={isPanning}
           canvasOffset={canvasOffset}
+          zoomLevel={zoomLevel}
           onNodeClick={handleNodeClick}
           onCanvasClick={handleCanvasClick}
           onCanvasDoubleClick={handleCanvasDoubleClick}
           onCanvasMouseDownForPan={handleCanvasMouseDownForPan}
+          onCanvasWheel={handleCanvasWheel}
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
         />

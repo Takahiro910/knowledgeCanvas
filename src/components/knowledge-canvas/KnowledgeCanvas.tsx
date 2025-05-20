@@ -9,12 +9,14 @@ interface KnowledgeCanvasProps {
   links: LinkData[];
   selectedNodeIdsForLinking: string[];
   isLinkingMode: boolean;
-  isPanning: boolean; // New prop for panning state
-  canvasOffset: { x: number; y: number }; // New prop for canvas offset
+  isPanning: boolean;
+  canvasOffset: { x: number; y: number };
+  zoomLevel: number; // New prop for zoom level
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onCanvasClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
-  onCanvasMouseDownForPan: (event: React.MouseEvent<HTMLDivElement>) => void; // New prop for pan mousedown
+  onCanvasMouseDownForPan: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void; // New prop for wheel events
   onFilesDrop: (files: File[]) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
@@ -27,10 +29,12 @@ export function KnowledgeCanvas({
   isLinkingMode,
   isPanning,
   canvasOffset,
+  zoomLevel,
   onNodeClick,
   onCanvasClick,
   onCanvasDoubleClick,
   onCanvasMouseDownForPan,
+  onCanvasWheel,
   onFilesDrop,
   onNodeDrag,
   canvasRef,
@@ -52,8 +56,6 @@ export function KnowledgeCanvas({
     event.preventDefault();
     setIsDraggingOver(false);
     if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
-      // Convert drop coordinates from view to world if dropping at a specific point
-      // For now, handleFilesDrop in page.tsx manages random placement with offset
       onFilesDrop(Array.from(event.dataTransfer.files));
     }
   };
@@ -79,52 +81,50 @@ export function KnowledgeCanvas({
     <div
       ref={canvasRef}
       className={cn(
-        "w-full h-full relative bg-background overflow-hidden p-0", // p-4 removed, overflow hidden for panning
+        "w-full h-full relative bg-background overflow-hidden p-0",
         isDraggingOver && "outline-dashed outline-2 outline-accent",
         isLinkingMode && "cursor-crosshair",
         isPanning && "cursor-grabbing",
-        !isLinkingMode && !isPanning && "cursor-grab" // Default grab cursor if not linking or panning
+        !isLinkingMode && !isPanning && "cursor-grab"
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={onCanvasClick}
       onDoubleClick={onCanvasDoubleClick}
-      onMouseDown={onCanvasMouseDownForPan} // Hook up mousedown for panning
+      onMouseDown={onCanvasMouseDownForPan}
+      onWheel={onCanvasWheel} // Handle wheel events for zooming
     >
       <div
-        className="absolute top-0 left-0" // This is the pannable container
+        className="absolute top-0 left-0"
         style={{
-          transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
-          // Ensure this container is large enough for content to pan into
-          width: '5000px', // Or a sufficiently large size
-          height: '5000px', // Or a sufficiently large size
+          transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoomLevel})`,
+          transformOrigin: '0 0', // Scale from top-left for simpler calculations
+          width: '5000px', 
+          height: '5000px',
         }}
       >
         {nodes.map((node) => (
           <NodeItem
             key={node.id}
-            node={node} // node.x and node.y are world coordinates
+            node={node}
             isSelected={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
-            isLinkingCandidate={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode} // Kept for consistency, though might be redundant if isSelected covers it
+            isLinkingCandidate={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
             onNodeClick={onNodeClick}
             onNodeDrag={onNodeDrag} 
-            canvasRef={canvasRef} // Passed for node drag boundary checks (relative to pannable world)
+            canvasRef={canvasRef}
             isLinkingMode={isLinkingMode}
+            zoomLevel={zoomLevel} // Pass zoomLevel to NodeItem
           />
         ))}
         <svg 
             className="absolute top-0 left-0 w-full h-full pointer-events-none" 
-            // SVG dimensions should match its container (the pannable div)
-            // Or be large enough to contain all links.
-            // Using w-full h-full makes it relative to the 5000x5000 div.
         >
           {links.map((link) => {
             const sourceNode = nodes.find((n) => n.id === link.sourceNodeId);
             const targetNode = nodes.find((n) => n.id === link.targetNodeId);
             if (!sourceNode || !targetNode) return null;
 
-            // getNodeCenter uses node.x, node.y which are world coordinates
             const sourceCenter = getNodeCenter(sourceNode);
             const targetCenter = getNodeCenter(targetNode);
 
@@ -136,7 +136,7 @@ export function KnowledgeCanvas({
                 x2={targetCenter.x}
                 y2={targetCenter.y}
                 className="stroke-primary opacity-70"
-                strokeWidth="2.5"
+                strokeWidth={2.5 / zoomLevel} // Scale stroke width inversely with zoom
                 markerEnd="url(#arrow)"
               />
             );
@@ -147,7 +147,7 @@ export function KnowledgeCanvas({
               viewBox="0 0 10 10"
               refX="8" 
               refY="5"
-              markerWidth="6"
+              markerWidth="6" // Consider scaling marker size as well, or adjust refX/Y if stroke width changes
               markerHeight="6"
               orient="auto-start-reverse" 
             >

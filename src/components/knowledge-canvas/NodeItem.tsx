@@ -15,9 +15,10 @@ interface NodeItemProps {
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
+  zoomLevel: number; // New prop for zoom level
 }
 
-export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef, isLinkingMode: propsIsLinkingMode }: NodeItemProps) {
+export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef, isLinkingMode: propsIsLinkingMode, zoomLevel }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
   const didDragRef = useRef(false);
@@ -47,20 +48,17 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     if (e.button !== 0) return;
 
     if (propsIsLinkingMode) {
-        // onNodeClick (which is page.tsx#handleNodeClick) is called.
-        // page.tsx#handleNodeClick already calls e.stopPropagation() for the mousedown event.
         onNodeClick(node.id, e);
         return;
     }
 
-    // Logic for starting a drag when not in linking mode
     e.preventDefault();
     e.stopPropagation();
 
     didDragRef.current = false;
     dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
+      x: e.clientX, // Store initial mouse clientX
+      y: e.clientY, // Store initial mouse clientY
       nodeX: node.x,
       nodeY: node.y,
     };
@@ -70,21 +68,25 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
   const mouseMoveHandler = useCallback((e: MouseEvent) => {
     if (!dragStartRef.current || !canvasRef.current) return;
 
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
+    const dxInView = e.clientX - dragStartRef.current.x; // Delta in view coordinates
+    const dyInView = e.clientY - dragStartRef.current.y; // Delta in view coordinates
 
-    let newX = dragStartRef.current.nodeX + dx;
-    let newY = dragStartRef.current.nodeY + dy;
+    // Convert view delta to world delta by dividing by zoomLevel
+    const dxInWorld = dxInView / zoomLevel;
+    const dyInWorld = dyInView / zoomLevel;
 
-    newX = Math.max(0, newX);
-    newY = Math.max(0, newY);
+    let newX = dragStartRef.current.nodeX + dxInWorld;
+    let newY = dragStartRef.current.nodeY + dyInWorld;
 
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+    newX = Math.max(0, newX); // Basic boundary check
+    newY = Math.max(0, newY); // Basic boundary check
+
+    if (Math.abs(dxInView) > 3 || Math.abs(dyInView) > 3) { // Use view delta for drag detection threshold
         didDragRef.current = true;
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [node.id, onNodeDrag, canvasRef]);
+  }, [node.id, onNodeDrag, canvasRef, zoomLevel]); // Added zoomLevel
 
 
   const mouseUpHandler = useCallback(() => {
@@ -108,27 +110,17 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
 
 
   const handleClick = (e: React.MouseEvent) => {
-    // If in linking mode, the selection logic is handled by onMouseDown.
-    // We must stop propagation here to prevent the click from bubbling to the canvas
-    // and triggering handleCanvasClick (from page.tsx), which would clear selections.
     if (propsIsLinkingMode) {
       e.stopPropagation();
-      didDragRef.current = false; // Reset in case, though mousedown should handle linking clicks
+      didDragRef.current = false; 
       return;
     }
 
-    // Logic for non-linking mode:
-    // If didDragRef is true, it means a drag just completed.
-    // We don't want to treat the mouseup that completes a drag as a click on the node.
-    // Also, stop propagation so the canvas click handler doesn't fire after a drag.
     if (didDragRef.current) {
       didDragRef.current = false;
       e.stopPropagation();
       return;
     }
-
-    // If it wasn't a drag and not in linking mode, it's a genuine click on the node.
-    // onNodeClick (page.tsx#handleNodeClick) will handle this and call e.stopPropagation().
     onNodeClick(node.id, e);
     didDragRef.current = false; 
   };
