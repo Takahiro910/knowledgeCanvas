@@ -13,10 +13,11 @@ interface NodeItemProps {
   isLinkingCandidate: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
-  canvasRef: React.RefObject<HTMLDivElement>; 
+  canvasRef: React.RefObject<HTMLDivElement>;
+  isLinkingMode: boolean; // Explicitly add this prop
 }
 
-export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef }: NodeItemProps) {
+export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, onNodeDrag, canvasRef, isLinkingMode: propsIsLinkingMode }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
   const didDragRef = useRef(false); // To distinguish drag from click
@@ -43,23 +44,18 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Prevent drag from initiating on right-click or for non-primary buttons
     if (e.button !== 0) return;
-    
-    // If in linking mode, don't allow dragging, let click handler manage selection
-    if (isLinkingCandidate || isSelected) { 
-        // If node is already selected for linking, mousedown could be start of new link creation or deselect.
-        // So, we do not start dragging here to allow onNodeClick to work as intended for linking.
-        // We still call onNodeClick for selection/deselection logic in linking mode.
-        onNodeClick(node.id, e);
-        return;
+
+    // If in linking mode, all mousedown events on nodes should be treated as potential link selections, not drags.
+    if (propsIsLinkingMode) {
+        onNodeClick(node.id, e); // Propagate click for linking logic
+        return; // Prevent drag initiation
     }
 
+    // If not in linking mode, proceed with drag logic
+    e.preventDefault(); 
+    e.stopPropagation(); 
 
-    e.preventDefault(); // Prevent text selection and other default behaviors
-    e.stopPropagation(); // Prevent canvas click if node is clicked
-
-    setIsDragging(true);
     didDragRef.current = false;
     dragStartRef.current = {
       x: e.clientX,
@@ -67,13 +63,11 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       nodeX: node.x,
       nodeY: node.y,
     };
-    // Add global listeners
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    setIsDragging(true); // This triggers the useEffect to add listeners
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !dragStartRef.current || !canvasRef.current) return;
+  const mouseMoveHandler = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current || !canvasRef.current) return;
 
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
@@ -81,57 +75,58 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     let newX = dragStartRef.current.nodeX + dx;
     let newY = dragStartRef.current.nodeY + dy;
 
-    // Basic boundary collision with canvas (optional, can be improved)
     const canvasRect = canvasRef.current.getBoundingClientRect();
+    if (!canvasRect.width || !canvasRect.height) {
+        // Canvas dimensions not yet available or invalid, skip drag update
+        return;
+    }
+    
     const nodeWidth = node.width || 256;
     const nodeHeight = node.height || (node.type === 'note' ? 160 : 120);
     
-    // Ensure node stays within canvas bounds (considering node dimensions)
     newX = Math.max(0, Math.min(newX, canvasRect.width - nodeWidth));
     newY = Math.max(0, Math.min(newY, canvasRect.height - nodeHeight));
 
-
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { // Threshold to consider it a drag
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { 
         didDragRef.current = true;
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [isDragging, node.id, onNodeDrag, canvasRef, node.width, node.height, node.type]);
+  }, [node.id, node.width, node.height, node.type, onNodeDrag, canvasRef]);
 
-  const handleMouseUp = useCallback((e: MouseEvent) => {
+
+  const mouseUpHandler = useCallback(() => {
     setIsDragging(false);
-    dragStartRef.current = null;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-
-    // If it was a drag, we might not want to trigger onNodeClick logic immediately
-    // The didDragRef handles this in the handleClick function.
-  }, [handleMouseMove]);
-
+    dragStartRef.current = null; 
+  }, [setIsDragging]);
 
   useEffect(() => {
-    // Cleanup global listeners when component unmounts or dragging stops
+    if (isDragging) {
+      document.addEventListener('mousemove', mouseMoveHandler);
+      document.addEventListener('mouseup', mouseUpHandler);
+    } else {
+      // Ensure dragStartRef is cleared if isDragging becomes false through other means (though unlikely here)
+      dragStartRef.current = null;
+    }
+
     return () => {
-      if (isDragging) { // Ensure cleanup if component unmounts mid-drag
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      }
+      document.removeEventListener('mousemove', mouseMoveHandler);
+      document.removeEventListener('mouseup', mouseUpHandler);
     };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, mouseMoveHandler, mouseUpHandler]);
 
 
   const handleClick = (e: React.MouseEvent) => {
-    // If it was a drag, prevent click action (unless it's for linking mode)
-    if (didDragRef.current && !isLinkingCandidate && !isSelected) {
-      didDragRef.current = false; // Reset for next interaction
-      e.stopPropagation(); // Stop propagation if it was a drag
+    // If it was a drag AND we are NOT in linking mode, suppress the click.
+    if (didDragRef.current && !propsIsLinkingMode) {
+      didDragRef.current = false; 
+      e.stopPropagation(); 
       return;
     }
-    // Otherwise, proceed with the original onNodeClick behavior (for selection, linking, etc.)
+    // Otherwise (it was a click, OR we are in linking mode), proceed with onNodeClick.
     onNodeClick(node.id, e);
-    didDragRef.current = false; // Ensure it's reset
+    didDragRef.current = false; // Reset for next interaction
   };
-
 
   const nodeWidth = node.width || 256;
   const nodeHeight = node.height || 'auto';
@@ -141,8 +136,10 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
       className={cn(
         "absolute shadow-lg hover:shadow-xl transition-shadow duration-200",
         "flex flex-col", 
-        isSelected && "ring-2 ring-accent shadow-accent/50", // General selection highlight
-        isLinkingCandidate && "ring-2 ring-primary shadow-primary/50", // Highlight for linking
+        // isSelected is used for styling when a node is chosen for linking
+        isSelected && "ring-2 ring-accent shadow-accent/50", 
+        // isLinkingCandidate was identical to isSelected, if specific styling is needed, it can be differentiated
+        // isLinkingCandidate && "ring-2 ring-primary shadow-primary/50", 
         isDragging ? "cursor-grabbing shadow-2xl z-10" : "cursor-grab"
       )}
       style={{ 
@@ -153,7 +150,7 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
         height: nodeHeight 
       }}
       onMouseDown={handleMouseDown}
-      onClick={handleClick} // Use the wrapper handleClick
+      onClick={handleClick}
       aria-selected={isSelected}
     >
       <CardHeader className="p-3">
@@ -177,5 +174,3 @@ export function NodeItem({ node, isSelected, isLinkingCandidate, onNodeClick, on
     </Card>
   );
 }
-
-    
