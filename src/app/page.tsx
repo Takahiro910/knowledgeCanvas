@@ -89,6 +89,10 @@ export default function KnowledgeCanvasPage() {
   const [currentNote, setCurrentNote] = useState<{ title: string; content: string }>({ title: '', content: '' });
   const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
 
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string }>({ title: '', content: '' });
+
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartCoordsRef = useRef<{ x: number, y: number } | null>(null);
@@ -104,7 +108,7 @@ export default function KnowledgeCanvasPage() {
     let worldX: number, worldY: number;
 
     if (posX !== undefined && posY !== undefined) {
-      // posX and posY are already world coordinates if provided (e.g., from double click)
+      // posX and posY are already world coordinates if provided (e.g., from double click or drop)
       worldX = posX;
       worldY = posY;
     } else {
@@ -140,9 +144,9 @@ export default function KnowledgeCanvasPage() {
     }
   };
   
-  const handleFilesDrop = useCallback((droppedFiles: File[]) => {
+  const handleFilesDrop = useCallback((droppedFiles: File[], dropX?: number, dropY?: number) => {
     droppedFiles.forEach(file => {
-      addNode('file', file.name, undefined, getFileType(file.name));
+      addNode('file', file.name, undefined, getFileType(file.name), dropX, dropY);
       toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
     });
   }, [addNode, toast]);
@@ -150,6 +154,8 @@ export default function KnowledgeCanvasPage() {
   const handleCreateNote = useCallback(() => {
     setCurrentNote({ title: '', content: '' }); 
     setIsNoteDialogOpen(true);
+    setIsEditDialogOpen(false);
+    setEditingNodeId(null);
   }, []);
   
   const handleSaveNote = () => {
@@ -162,6 +168,46 @@ export default function KnowledgeCanvasPage() {
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null); 
   };
+
+  const handleNodeDoubleClick = useCallback((nodeId: string) => {
+    const nodeToEdit = nodes.find(n => n.id === nodeId);
+    if (nodeToEdit) {
+      setEditingNodeId(nodeId);
+      setCurrentEditData({ title: nodeToEdit.title, content: nodeToEdit.content || '' });
+      setIsEditDialogOpen(true);
+      setIsNoteDialogOpen(false); // Ensure create dialog is closed
+    }
+  }, [nodes]);
+
+  const handleSaveEditedNode = () => {
+    if (!editingNodeId || !currentEditData.title.trim()) {
+      toast({ title: "Error", description: "Title cannot be empty.", variant: "destructive" });
+      return;
+    }
+    const nodeBeingEdited = nodes.find(n => n.id === editingNodeId);
+    if (!nodeBeingEdited) {
+        toast({ title: "Error", description: "Node not found for editing.", variant: "destructive" });
+        setIsEditDialogOpen(false);
+        setEditingNodeId(null);
+        return;
+    }
+
+    setNodes(prevNodes =>
+      prevNodes.map(n =>
+        n.id === editingNodeId
+          ? {
+              ...n,
+              title: currentEditData.title,
+              content: n.type === 'note' ? currentEditData.content : n.content,
+            }
+          : n
+      )
+    );
+    toast({ title: "Node Updated", description: `"${currentEditData.title}" updated successfully.` });
+    setIsEditDialogOpen(false);
+    setEditingNodeId(null);
+  };
+
 
   const handleToggleLinkMode = () => {
     setIsLinkingMode(!isLinkingMode);
@@ -212,7 +258,16 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode || isPanning) return;
+    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen) return;
+
+    // Prevent if double click is on a node item (handled by NodeItem's onDoubleClick)
+    let target = event.target as HTMLElement;
+    while (target && target !== event.currentTarget) {
+        if (target.closest('[data-node-item="true"]')) {
+            return;
+        }
+        target = target.parentElement as HTMLElement;
+    }
 
     const viewX = event.clientX - canvasBounds.left;
     const viewY = event.clientY - canvasBounds.top;
@@ -344,6 +399,22 @@ export default function KnowledgeCanvasPage() {
     return { displayNodes, displayLinks };
   }, [nodes, links, searchTerm, searchDepth]);
 
+  const currentEditingNodeDetails = useMemo(() => {
+    if (!editingNodeId) return null;
+    return nodes.find(n => n.id === editingNodeId);
+  }, [editingNodeId, nodes]);
+
+  const handleDialogClose = () => {
+    setIsNoteDialogOpen(false);
+    setIsEditDialogOpen(false);
+    setEditingNodeId(null);
+    setCurrentNoteCreationCoords(null);
+    // Optionally reset currentNote and currentEditData here if desired
+    // setCurrentNote({ title: '', content: '' });
+    // setCurrentEditData({ title: '', content: '' });
+  };
+
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
@@ -367,6 +438,7 @@ export default function KnowledgeCanvasPage() {
           canvasOffset={canvasOffset}
           zoomLevel={zoomLevel}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
           onCanvasClick={handleCanvasClick}
           onCanvasDoubleClick={handleCanvasDoubleClick}
           onCanvasMouseDownForPan={handleCanvasMouseDownForPan}
@@ -377,42 +449,62 @@ export default function KnowledgeCanvasPage() {
       </main>
       <Toaster />
       
-      <AlertDialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
+      <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Create New Note</AlertDialogTitle>
+            <AlertDialogTitle>
+              {editingNodeId 
+                ? currentEditingNodeDetails?.type === 'note' 
+                  ? `Edit Note: ${currentEditingNodeDetails?.title}` 
+                  : `Edit File: ${currentEditingNodeDetails?.title}`
+                : "Create New Note"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Enter a title and content for your new note.
+              {editingNodeId
+                ? "Update the details below."
+                : "Enter a title and content for your new note."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="note-title" className="text-right">
+              <Label htmlFor="dialog-title" className="text-right">
                 Title
               </Label>
               <Input
-                id="note-title"
-                value={currentNote.title}
-                onChange={(e) => setCurrentNote(prev => ({ ...prev, title: e.target.value }))}
+                id="dialog-title"
+                value={editingNodeId ? currentEditData.title : currentNote.title}
+                onChange={(e) => 
+                  editingNodeId 
+                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value })) 
+                    : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
+                }
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="note-content" className="text-right pt-2">
-                Content
-              </Label>
-              <Textarea
-                id="note-content"
-                value={currentNote.content}
-                onChange={(e) => setCurrentNote(prev => ({ ...prev, content: e.target.value }))}
-                className="col-span-3 min-h-[100px]"
-                placeholder="Type your note here..."
-              />
-            </div>
+            {(!editingNodeId || currentEditingNodeDetails?.type === 'note') && (
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="dialog-content" className="text-right pt-2">
+                  Content
+                </Label>
+                <Textarea
+                  id="dialog-content"
+                  value={editingNodeId ? currentEditData.content : currentNote.content}
+                  onChange={(e) => 
+                    editingNodeId 
+                      ? setCurrentEditData(prev => ({ ...prev, content: e.target.value })) 
+                      : setCurrentNote(prev => ({ ...prev, content: e.target.value }))
+                  }
+                  className="col-span-3 min-h-[100px]"
+                  placeholder="Type your note here..."
+                />
+              </div>
+            )}
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSaveNote}>Save Note</AlertDialogAction>
+            <AlertDialogCancel onClick={handleDialogClose}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={editingNodeId ? handleSaveEditedNode : handleSaveNote}>
+              {editingNodeId ? "Save Changes" : "Save Note"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -420,3 +512,4 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
+

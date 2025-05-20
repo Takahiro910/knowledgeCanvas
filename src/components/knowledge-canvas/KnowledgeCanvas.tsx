@@ -11,13 +11,14 @@ interface KnowledgeCanvasProps {
   isLinkingMode: boolean;
   isPanning: boolean;
   canvasOffset: { x: number; y: number };
-  zoomLevel: number; // New prop for zoom level
+  zoomLevel: number; 
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
+  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void; // Added prop
   onCanvasClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasMouseDownForPan: (event: React.MouseEvent<HTMLDivElement>) => void;
-  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void; // New prop for wheel events
-  onFilesDrop: (files: File[]) => void;
+  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void; 
+  onFilesDrop: (files: File[], dropX?: number, dropY?: number) => void; // Allow drop coordinates
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
 }
@@ -31,6 +32,7 @@ export function KnowledgeCanvas({
   canvasOffset,
   zoomLevel,
   onNodeClick,
+  onNodeDoubleClick, // Destructure new prop
   onCanvasClick,
   onCanvasDoubleClick,
   onCanvasMouseDownForPan,
@@ -55,8 +57,16 @@ export function KnowledgeCanvas({
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDraggingOver(false);
-    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
-      onFilesDrop(Array.from(event.dataTransfer.files));
+    if (event.dataTransfer.files && event.dataTransfer.files.length > 0 && canvasRef.current) {
+      const canvasBounds = canvasRef.current.getBoundingClientRect();
+      const viewX = event.clientX - canvasBounds.left;
+      const viewY = event.clientY - canvasBounds.top;
+      
+      // Convert drop coordinates from view space to world space
+      const worldX = (viewX - canvasOffset.x) / zoomLevel;
+      const worldY = (viewY - canvasOffset.y) / zoomLevel;
+
+      onFilesDrop(Array.from(event.dataTransfer.files), worldX, worldY);
     }
   };
   
@@ -93,13 +103,13 @@ export function KnowledgeCanvas({
       onClick={onCanvasClick}
       onDoubleClick={onCanvasDoubleClick}
       onMouseDown={onCanvasMouseDownForPan}
-      onWheel={onCanvasWheel} // Handle wheel events for zooming
+      onWheel={onCanvasWheel} 
     >
       <div
         className="absolute top-0 left-0"
         style={{
           transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoomLevel})`,
-          transformOrigin: '0 0', // Scale from top-left for simpler calculations
+          transformOrigin: '0 0', 
           width: '5000px', 
           height: '5000px',
         }}
@@ -111,10 +121,11 @@ export function KnowledgeCanvas({
             isSelected={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
             isLinkingCandidate={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
             onNodeClick={onNodeClick}
+            onNodeDoubleClick={onNodeDoubleClick} // Pass prop
             onNodeDrag={onNodeDrag} 
             canvasRef={canvasRef}
             isLinkingMode={isLinkingMode}
-            zoomLevel={zoomLevel} // Pass zoomLevel to NodeItem
+            zoomLevel={zoomLevel} 
           />
         ))}
         <svg 
@@ -136,7 +147,7 @@ export function KnowledgeCanvas({
                 x2={targetCenter.x}
                 y2={targetCenter.y}
                 className="stroke-primary opacity-70"
-                strokeWidth={2.5 / zoomLevel} // Scale stroke width inversely with zoom
+                strokeWidth={2.5 / zoomLevel} 
                 markerEnd="url(#arrow)"
               />
             );
@@ -147,7 +158,7 @@ export function KnowledgeCanvas({
               viewBox="0 0 10 10"
               refX="8" 
               refY="5"
-              markerWidth="6" // Consider scaling marker size as well, or adjust refX/Y if stroke width changes
+              markerWidth="6" 
               markerHeight="6"
               orient="auto-start-reverse" 
             >
@@ -166,3 +177,4 @@ export function KnowledgeCanvas({
     </div>
   );
 }
+
