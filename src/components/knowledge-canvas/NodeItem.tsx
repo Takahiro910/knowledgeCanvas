@@ -1,10 +1,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import type { NodeData } from '@/types';
 import { FileText, StickyNote as NoteIcon, Image as ImageIcon } from 'lucide-react';
 import { FilePdfIcon } from '@/components/icons/FilePdfIcon';
 import { FileDocxIcon } from '@/components/icons/FileDocxIcon';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface NodeItemProps {
@@ -16,19 +17,19 @@ interface NodeItemProps {
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
-  zoomLevel: number; 
+  zoomLevel: number;
 }
 
-export function NodeItem({ 
-  node, 
-  isSelected, 
-  isLinkingCandidate, 
-  onNodeClick, 
+export function NodeItem({
+  node,
+  isSelected,
+  isLinkingCandidate,
+  onNodeClick,
   onNodeDoubleClick,
-  onNodeDrag, 
-  canvasRef, 
-  isLinkingMode: propsIsLinkingMode, 
-  zoomLevel 
+  onNodeDrag,
+  canvasRef,
+  isLinkingMode: propsIsLinkingMode,
+  zoomLevel
 }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
@@ -57,19 +58,15 @@ export function NodeItem({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || propsIsLinkingMode) {
-        // If not left click, or if in linking mode,
-        // do not initiate drag. Let handleClick handle the click for linking.
-        return;
+      return;
     }
-    
-    // This part now only runs if it's a left click AND NOT in linking mode.
-    e.preventDefault(); 
-    e.stopPropagation(); // Prevent canvas pan when starting a node drag
+    e.preventDefault();
+    e.stopPropagation();
 
     didDragRef.current = false;
     dragStartRef.current = {
-      x: e.clientX, 
-      y: e.clientY, 
+      x: e.clientX,
+      y: e.clientY,
       nodeX: node.x,
       nodeY: node.y,
     };
@@ -79,8 +76,8 @@ export function NodeItem({
   const mouseMoveHandler = useCallback((e: MouseEvent) => {
     if (!dragStartRef.current || !canvasRef.current) return;
 
-    const dxInView = e.clientX - dragStartRef.current.x; 
-    const dyInView = e.clientY - dragStartRef.current.y; 
+    const dxInView = e.clientX - dragStartRef.current.x;
+    const dyInView = e.clientY - dragStartRef.current.y;
 
     const dxInWorld = dxInView / zoomLevel;
     const dyInWorld = dyInView / zoomLevel;
@@ -88,20 +85,19 @@ export function NodeItem({
     let newX = dragStartRef.current.nodeX + dxInWorld;
     let newY = dragStartRef.current.nodeY + dyInWorld;
 
-    newX = Math.max(0, newX); 
-    newY = Math.max(0, newY); 
+    newX = Math.max(0, newX);
+    newY = Math.max(0, newY);
 
-    if (Math.abs(dxInView) > 3 || Math.abs(dyInView) > 3) { 
+    if (Math.abs(dxInView) > 3 || Math.abs(dyInView) > 3) {
         didDragRef.current = true;
     }
 
     onNodeDrag(node.id, newX, newY);
-  }, [node.id, onNodeDrag, canvasRef, zoomLevel, node.x, node.y]); // Added node.x, node.y to dependencies
+  }, [node.id, onNodeDrag, canvasRef, zoomLevel, node.x, node.y]);
 
 
   const mouseUpHandler = useCallback(() => {
     setIsDragging(false);
-    // dragStartRef.current is reset in useEffect cleanup for isDragging
   }, []);
 
   useEffect(() => {
@@ -109,7 +105,7 @@ export function NodeItem({
       document.addEventListener('mousemove', mouseMoveHandler);
       document.addEventListener('mouseup', mouseUpHandler);
     } else {
-      dragStartRef.current = null; 
+      dragStartRef.current = null;
     }
 
     return () => {
@@ -122,10 +118,9 @@ export function NodeItem({
   const handleClick = (e: React.MouseEvent) => {
     if (didDragRef.current) {
       didDragRef.current = false;
-      e.stopPropagation(); // Prevent click if drag occurred
+      e.stopPropagation();
       return;
     }
-    // If linking mode, stop propagation to prevent canvas click from deselecting
     if (propsIsLinkingMode) {
       e.stopPropagation();
     }
@@ -133,15 +128,22 @@ export function NodeItem({
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent canvas double click (note creation)
-    if (!propsIsLinkingMode) { // Only allow editing if not in linking mode
+    e.stopPropagation();
+    if (!propsIsLinkingMode) {
         onNodeDoubleClick(node.id, e);
     }
   };
 
 
   const nodeWidth = node.width || 256;
-  const nodeHeight = node.height || 'auto';
+  let nodeHeight = node.height || 'auto';
+  if (node.type === 'note' && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
+    // Basic auto-height adjustment if tags are present for notes.
+    // This is a rough estimation and might need more sophisticated calculation based on tag count / line breaks.
+    // For now, let's assume tags might add some height.
+    // Note: minHeight is already set via className.
+  }
+
 
   return (
     <Card
@@ -157,7 +159,7 @@ export function NodeItem({
         left: node.x,
         top: node.y,
         width: nodeWidth,
-        minHeight: node.type === 'note' ? 160 : 120,
+        minHeight: node.type === 'note' ? (node.content ? 160 : 100) : 100, // Adjusted minHeight
         height: nodeHeight
       }}
       onMouseDown={handleMouseDown}
@@ -177,11 +179,20 @@ export function NodeItem({
         </div>
       </CardHeader>
       {node.type === 'note' && node.content && (
-        <CardContent className="p-3 text-sm overflow-hidden flex-grow">
-          <p className="whitespace-pre-wrap break-words line-clamp-4">
+        <CardContent className="p-3 pt-0 text-sm overflow-hidden flex-grow">
+          <p className="whitespace-pre-wrap break-words line-clamp-3"> {/* Reduced line-clamp for content */}
             {node.content}
           </p>
         </CardContent>
+      )}
+      {(node.tags && node.tags.length > 0) && (
+        <CardFooter className="p-3 pt-1 flex flex-wrap gap-1 border-t mt-auto">
+          {node.tags.map((tag, index) => (
+            <Badge key={index} variant="secondary" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+        </CardFooter>
       )}
     </Card>
   );
