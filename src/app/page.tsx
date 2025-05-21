@@ -523,10 +523,17 @@ export default function KnowledgeCanvasPage() {
     }
   };
 
-  const handleAutoLayout = () => {
-    if (nodes.length === 0) return;
+ const handleAutoLayout = () => {
+    const nodesToLayout = filteredNodesAndLinks.displayNodes;
+    const linksToConsider = filteredNodesAndLinks.displayLinks;
 
-    const newNodes = JSON.parse(JSON.stringify(nodes)) as NodeData[];
+    if (nodesToLayout.length === 0) {
+      toast({ title: "No nodes to layout", description: "No nodes are currently visible to arrange." });
+      return;
+    }
+
+    const layoutNodes = JSON.parse(JSON.stringify(nodesToLayout)) as NodeData[];
+
     const adj = new Map<string, string[]>();
     const inDegree = new Map<string, number>();
 
@@ -537,17 +544,21 @@ export default function KnowledgeCanvasPage() {
     const PAGE_MARGIN_X = 50;
     const PAGE_MARGIN_Y = 50;
 
-    newNodes.forEach(n => {
+    layoutNodes.forEach(n => {
       inDegree.set(n.id, 0);
       adj.set(n.id, []);
     });
 
-    links.forEach(link => {
-      adj.get(link.sourceNodeId)?.push(link.targetNodeId);
-      inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
+    linksToConsider.forEach(link => {
+      const sourceExists = layoutNodes.some(n => n.id === link.sourceNodeId);
+      const targetExists = layoutNodes.some(n => n.id === link.targetNodeId);
+      if (sourceExists && targetExists) {
+        adj.get(link.sourceNodeId)?.push(link.targetNodeId);
+        inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
+      }
     });
 
-    let queue = newNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
+    let queue = layoutNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
     const layers: string[][] = [];
     
     while (queue.length > 0) {
@@ -566,35 +577,49 @@ export default function KnowledgeCanvasPage() {
       queue = nextQueue;
     }
     
+    const newPositionsMap = new Map<string, { x: number, y: number }>();
+
     layers.forEach((layer, layerIndex) => {
       let currentY = PAGE_MARGIN_Y;
       const layerX = PAGE_MARGIN_X + layerIndex * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
       layer.forEach(nodeId => {
-        const nodeToPosition = newNodes.find(n => n.id === nodeId);
+        const nodeToPosition = layoutNodes.find(n => n.id === nodeId);
         if (nodeToPosition) {
-          nodeToPosition.x = layerX;
-          nodeToPosition.y = currentY;
+          newPositionsMap.set(nodeId, { x: layerX, y: currentY });
           currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
         }
       });
     });
 
-    // Handle nodes not in layers (e.g. part of cycles or disconnected)
     const positionedNodeIds = new Set(layers.flat());
     let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
-    if(layers.length > 0) lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING; else lastX = PAGE_MARGIN_X;
+    if (layers.some(layer => layer.length > 0)) {
+        lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING;
+    } else if (layers.length === 0 && layoutNodes.length > 0) {
+         // Handles case where no layers were formed (e.g. all nodes are in cycles or disconnected)
+         // but there are nodes to layout. Position them in the first column.
+    }
+
 
     let unPositionY = PAGE_MARGIN_Y;
-    newNodes.forEach(node => {
+    layoutNodes.forEach(node => {
       if (!positionedNodeIds.has(node.id)) {
-        node.x = lastX;
-        node.y = unPositionY;
+        newPositionsMap.set(node.id, { x: lastX, y: unPositionY });
         unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
       }
     });
 
-    setNodes(newNodes);
-    toast({ title: "Layout Applied", description: "Nodes have been automatically arranged." });
+    setNodes(prevNodes =>
+      prevNodes.map(n => {
+        const newPosition = newPositionsMap.get(n.id);
+        if (newPosition) {
+          return { ...n, x: newPosition.x, y: newPosition.y };
+        }
+        return n;
+      })
+    );
+
+    toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
   };
 
 
@@ -779,3 +804,4 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
+
