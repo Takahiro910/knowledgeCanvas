@@ -33,11 +33,6 @@ const getFileType = (fileName: string): AppFileType => {
   return 'OTHER';
 };
 
-interface TraversalResult {
-  nodes: Set<NodeData>;
-  links: Set<LinkData>;
-}
-
 // Recursive function to find linked nodes and links up to a certain depth
 const traverseGraph = (
   startNodeId: string,
@@ -47,7 +42,7 @@ const traverseGraph = (
   allLinks: LinkData[],
   visitedNodesInPath: Set<string>, // Tracks nodes in the current traversal path to avoid cycles
   collectedNodes: Map<string, NodeData>,
-  collectedLinkIds: Set<string>
+  collectedLinkIds: Set<string> // Parameter name is collectedLinkIds
 ): void => {
   if (currentDepth > maxDepth || visitedNodesInPath.has(startNodeId)) {
     return;
@@ -70,7 +65,7 @@ const traverseGraph = (
 
     if (neighborNode) {
         collectedLinkIds.add(link.id);
-        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIdsSet);
+        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds); // Use collectedLinkIds
     }
   }
   visitedNodesInPath.delete(startNodeId); // Backtrack for other paths
@@ -425,7 +420,7 @@ export default function KnowledgeCanvasPage() {
     let matchedInitialNodes = nodes.filter(node => {
       const matchesSelectedTags = selectedFilterTags.length > 0
         ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
-        : true; // If no filter tags selected, this condition passes
+        : true; 
 
       const matchesSearchTerm = searchTerm.trim()
         ? (
@@ -433,16 +428,16 @@ export default function KnowledgeCanvasPage() {
             (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
             (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
           )
-        : true; // If no search term, this condition passes
+        : true; 
       
-      if (selectedFilterTags.length > 0 && searchTerm.trim()){ // Both filters active
+      if (selectedFilterTags.length > 0 && searchTerm.trim()){ 
         return matchesSelectedTags && matchesSearchTerm;
-      } else if (selectedFilterTags.length > 0){ // Only tag filter active
+      } else if (selectedFilterTags.length > 0){ 
         return matchesSelectedTags;
-      } else if (searchTerm.trim()){ // Only search term active
+      } else if (searchTerm.trim()){ 
         return matchesSearchTerm;
       }
-      return false; // Should not be reached if the initial empty check passed
+      return false; 
     });
 
     if (matchedInitialNodes.length === 0) {
@@ -450,16 +445,16 @@ export default function KnowledgeCanvasPage() {
     }
 
     const collectedNodesMap = new Map<string, NodeData>();
-    const collectedLinkIdsSet = new Set<string>();
+    const collectedLinkIds = new Set<string>(); // Changed from collectedLinkIdsSet to collectedLinkIds
 
     matchedInitialNodes.forEach(startNode => {
       const visitedNodesInPath = new Set<string>();
-      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIdsSet);
+      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds); // Pass collectedLinkIds
     });
 
     const displayNodes = Array.from(collectedNodesMap.values());
     const displayLinks = links.filter(link =>
-        collectedLinkIdsSet.has(link.id) &&
+        collectedLinkIds.has(link.id) &&
         collectedNodesMap.has(link.sourceNodeId) &&
         collectedNodesMap.has(link.targetNodeId)
     );
