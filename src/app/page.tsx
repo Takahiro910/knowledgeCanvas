@@ -18,9 +18,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { XIcon } from 'lucide-react';
 
 
 // Helper to determine file type
@@ -42,7 +44,7 @@ const traverseGraph = (
   allLinks: LinkData[],
   visitedNodesInPath: Set<string>, // Tracks nodes in the current traversal path to avoid cycles
   collectedNodes: Map<string, NodeData>,
-  collectedLinkIds: Set<string> // Parameter name is collectedLinkIds
+  collectedLinkIds: Set<string> 
 ): void => {
   if (currentDepth > maxDepth || visitedNodesInPath.has(startNodeId)) {
     return;
@@ -65,7 +67,7 @@ const traverseGraph = (
 
     if (neighborNode) {
         collectedLinkIds.add(link.id);
-        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds); // Use collectedLinkIds
+        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds);
     }
   }
   visitedNodesInPath.delete(startNodeId); // Backtrack for other paths
@@ -87,6 +89,8 @@ export default function KnowledgeCanvasPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
+
+  const [isManageTagsDialogOpen, setIsManageTagsDialogOpen] = useState(false);
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -128,11 +132,9 @@ export default function KnowledgeCanvasPage() {
     let worldX: number, worldY: number;
 
     if (posX !== undefined && posY !== undefined) {
-      // posX and posY are already world coordinates if provided (e.g., from double click or drop)
       worldX = posX;
       worldY = posY;
     } else {
-      // Random placement, calculate view coordinates then convert to world
       const randomViewX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
       const randomViewY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
       worldX = (randomViewX - canvasOffset.x) / zoomLevel;
@@ -201,7 +203,7 @@ export default function KnowledgeCanvasPage() {
         tagsString: nodeToEdit.tags ? nodeToEdit.tags.join(', ') : ''
       });
       setIsEditDialogOpen(true);
-      setIsNoteDialogOpen(false); // Ensure create dialog is closed
+      setIsNoteDialogOpen(false); 
     }
   }, [nodes]);
 
@@ -305,7 +307,7 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen) return;
+    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isManageTagsDialogOpen) return;
 
     let target = event.target as HTMLElement;
     while (target && target !== event.currentTarget) {
@@ -445,11 +447,11 @@ export default function KnowledgeCanvasPage() {
     }
 
     const collectedNodesMap = new Map<string, NodeData>();
-    const collectedLinkIds = new Set<string>(); // Changed from collectedLinkIdsSet to collectedLinkIds
+    const collectedLinkIds = new Set<string>(); 
 
     matchedInitialNodes.forEach(startNode => {
       const visitedNodesInPath = new Set<string>();
-      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds); // Pass collectedLinkIds
+      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds); 
     });
 
     const displayNodes = Array.from(collectedNodesMap.values());
@@ -467,13 +469,26 @@ export default function KnowledgeCanvasPage() {
     return nodes.find(n => n.id === editingNodeId);
   }, [editingNodeId, nodes]);
 
-  const handleDialogClose = () => {
+  const handleCreateEditDialogClose = () => {
     setIsNoteDialogOpen(false);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
     setCurrentNoteCreationCoords(null);
     setCurrentNote({ title: '', content: '', tagsString: '' });
     setCurrentEditData({ title: '', content: '', tagsString: '' });
+  };
+
+  const handleOpenManageTagsDialog = () => setIsManageTagsDialogOpen(true);
+  const handleCloseManageTagsDialog = () => setIsManageTagsDialogOpen(false);
+
+  const handleDeleteTag = (tagToDelete: string) => {
+    setNodes(prevNodes => 
+      prevNodes.map(node => ({
+        ...node,
+        tags: node.tags?.filter(tag => tag !== tagToDelete)
+      }))
+    );
+    toast({ title: "Tag Deleted", description: `Tag "${tagToDelete}" removed from all nodes.` });
   };
 
 
@@ -491,6 +506,7 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
+        onOpenManageTagsDialog={handleOpenManageTagsDialog}
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -514,7 +530,8 @@ export default function KnowledgeCanvasPage() {
       </main>
       <Toaster />
 
-      <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
+      {/* Create/Edit Node Dialog */}
+      <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => !isOpen && handleCreateEditDialogClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -582,10 +599,41 @@ export default function KnowledgeCanvasPage() {
             </div>
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleDialogClose}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleCreateEditDialogClose}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={editingNodeId ? handleSaveEditedNode : handleSaveNote}>
               {editingNodeId ? "Save Changes" : "Save Note"}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Manage Tags Dialog */}
+      <AlertDialog open={isManageTagsDialogOpen} onOpenChange={(isOpen) => !isOpen && handleCloseManageTagsDialog()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Manage Tags</AlertDialogTitle>
+            <AlertDialogDescription>
+              View and remove existing tags from the system. Removing a tag here will remove it from all associated nodes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 max-h-[400px] overflow-y-auto">
+            {allTags.length > 0 ? (
+              <ul className="space-y-2">
+                {allTags.map(tag => (
+                  <li key={tag} className="flex items-center justify-between p-2 border rounded-md">
+                    <span>{tag}</span>
+                    <Button variant="ghost" size="icon" onClick={() => handleDeleteTag(tag)} aria-label={`Delete tag ${tag}`}>
+                      <XIcon className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground text-center">No tags found.</p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCloseManageTagsDialog}>Close</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

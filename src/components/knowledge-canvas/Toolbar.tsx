@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag } from 'lucide-react';
+import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag, Tags as TagsIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -20,6 +20,7 @@ interface ToolbarProps {
   allTags: string[];
   selectedFilterTags: string[];
   onFilterTagToggle: (tag: string) => void;
+  onOpenManageTagsDialog: () => void; 
 }
 
 export function Toolbar({
@@ -34,6 +35,7 @@ export function Toolbar({
   allTags,
   selectedFilterTags,
   onFilterTagToggle,
+  onOpenManageTagsDialog, 
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -65,11 +67,14 @@ export function Toolbar({
         >
           <LinkIcon className="mr-2 h-4 w-4" /> {isLinkingMode ? 'Linking...' : 'Link Nodes'}
         </Button>
+         <Button variant="outline" onClick={onOpenManageTagsDialog} aria-label="Manage tags">
+          <TagsIcon className="mr-2 h-4 w-4" /> Manage Tags
+        </Button>
         <div className="flex items-center gap-2">
           <Search className="h-5 w-5 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search nodes..."
+            placeholder="Search nodes (inc. tags)..."
             className="w-64"
             value={currentSearchTerm}
             onChange={(e) => onSearch(e.target.value)}
@@ -117,3 +122,4 @@ export function Toolbar({
     </header>
   );
 }
+
