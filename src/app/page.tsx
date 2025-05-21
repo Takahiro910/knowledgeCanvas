@@ -22,7 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { XIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { XIcon, PlusCircleIcon } from 'lucide-react';
 
 
 // Helper to determine file type
@@ -44,7 +45,7 @@ const traverseGraph = (
   allLinks: LinkData[],
   visitedNodesInPath: Set<string>, // Tracks nodes in the current traversal path to avoid cycles
   collectedNodes: Map<string, NodeData>,
-  collectedLinkIds: Set<string> 
+  collectedLinkIds: Set<string>
 ): void => {
   if (currentDepth > maxDepth || visitedNodesInPath.has(startNodeId)) {
     return;
@@ -83,14 +84,13 @@ export default function KnowledgeCanvasPage() {
   const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]);
 
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
-  const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
+  const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
   const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tagsString: string }>({ title: '', content: '', tagsString: '' });
-
-  const [isManageTagsDialogOpen, setIsManageTagsDialogOpen] = useState(false);
+  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
+  const [tagInputValue, setTagInputValue] = useState('');
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -151,7 +151,7 @@ export default function KnowledgeCanvasPage() {
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
       width: 256,
-      height: type === 'note' ? 160 : 120, 
+      height: type === 'note' ? 160 : 120,
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
@@ -175,7 +175,8 @@ export default function KnowledgeCanvasPage() {
   }, [addNode, toast]);
 
   const handleCreateNote = useCallback(() => {
-    setCurrentNote({ title: '', content: '', tagsString: '' });
+    setCurrentNote({ title: '', content: '', tags: [] });
+    setTagInputValue('');
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
@@ -186,8 +187,7 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    const parsedTags = currentNote.tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
-    addNode('note', currentNote.title, currentNote.content, undefined, parsedTags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
+    addNode('note', currentNote.title, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
@@ -200,10 +200,11 @@ export default function KnowledgeCanvasPage() {
       setCurrentEditData({
         title: nodeToEdit.title,
         content: nodeToEdit.content || '',
-        tagsString: nodeToEdit.tags ? nodeToEdit.tags.join(', ') : ''
+        tags: nodeToEdit.tags || []
       });
+      setTagInputValue('');
       setIsEditDialogOpen(true);
-      setIsNoteDialogOpen(false); 
+      setIsNoteDialogOpen(false);
     }
   }, [nodes]);
 
@@ -220,8 +221,6 @@ export default function KnowledgeCanvasPage() {
         return;
     }
 
-    const parsedTags = currentEditData.tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
-
     setNodes(prevNodes =>
       prevNodes.map(n =>
         n.id === editingNodeId
@@ -229,7 +228,7 @@ export default function KnowledgeCanvasPage() {
               ...n,
               title: currentEditData.title,
               content: n.type === 'note' ? currentEditData.content : n.content,
-              tags: parsedTags,
+              tags: currentEditData.tags,
             }
           : n
       )
@@ -238,7 +237,6 @@ export default function KnowledgeCanvasPage() {
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
   };
-
 
   const handleToggleLinkMode = () => {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
@@ -307,7 +305,7 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isManageTagsDialogOpen) return;
+    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen) return;
 
     let target = event.target as HTMLElement;
     while (target && target !== event.currentTarget) {
@@ -392,7 +390,7 @@ export default function KnowledgeCanvasPage() {
 
     const newZoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel - event.deltaY * zoomSpeed * 0.01));
 
-    if (newZoomLevel === zoomLevel) return; 
+    if (newZoomLevel === zoomLevel) return;
 
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     if (!canvasBounds) return;
@@ -422,7 +420,7 @@ export default function KnowledgeCanvasPage() {
     let matchedInitialNodes = nodes.filter(node => {
       const matchesSelectedTags = selectedFilterTags.length > 0
         ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
-        : true; 
+        : true;
 
       const matchesSearchTerm = searchTerm.trim()
         ? (
@@ -430,16 +428,16 @@ export default function KnowledgeCanvasPage() {
             (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
             (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
           )
-        : true; 
-      
-      if (selectedFilterTags.length > 0 && searchTerm.trim()){ 
+        : true;
+
+      if (selectedFilterTags.length > 0 && searchTerm.trim()){
         return matchesSelectedTags && matchesSearchTerm;
-      } else if (selectedFilterTags.length > 0){ 
+      } else if (selectedFilterTags.length > 0){
         return matchesSelectedTags;
-      } else if (searchTerm.trim()){ 
+      } else if (searchTerm.trim()){
         return matchesSearchTerm;
       }
-      return false; 
+      return false;
     });
 
     if (matchedInitialNodes.length === 0) {
@@ -447,11 +445,11 @@ export default function KnowledgeCanvasPage() {
     }
 
     const collectedNodesMap = new Map<string, NodeData>();
-    const collectedLinkIds = new Set<string>(); 
+    const collectedLinkIds = new Set<string>();
 
     matchedInitialNodes.forEach(startNode => {
       const visitedNodesInPath = new Set<string>();
-      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds); 
+      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds);
     });
 
     const displayNodes = Array.from(collectedNodesMap.values());
@@ -474,21 +472,33 @@ export default function KnowledgeCanvasPage() {
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
     setCurrentNoteCreationCoords(null);
-    setCurrentNote({ title: '', content: '', tagsString: '' });
-    setCurrentEditData({ title: '', content: '', tagsString: '' });
+    setCurrentNote({ title: '', content: '', tags: [] });
+    setCurrentEditData({ title: '', content: '', tags: [] });
+    setTagInputValue('');
   };
 
-  const handleOpenManageTagsDialog = () => setIsManageTagsDialogOpen(true);
-  const handleCloseManageTagsDialog = () => setIsManageTagsDialogOpen(false);
+  const handleAddTagToDialog = () => {
+    const newTag = tagInputValue.trim();
+    if (!newTag) return;
 
-  const handleDeleteTag = (tagToDelete: string) => {
-    setNodes(prevNodes => 
-      prevNodes.map(node => ({
-        ...node,
-        tags: node.tags?.filter(tag => tag !== tagToDelete)
-      }))
-    );
-    toast({ title: "Tag Deleted", description: `Tag "${tagToDelete}" removed from all nodes.` });
+    if (isNoteDialogOpen) {
+      if (!currentNote.tags.includes(newTag)) {
+        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+      }
+    } else if (isEditDialogOpen) {
+      if (!currentEditData.tags.includes(newTag)) {
+        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+      }
+    }
+    setTagInputValue('');
+  };
+
+  const handleRemoveTagFromDialog = (tagToRemove: string) => {
+    if (isNoteDialogOpen) {
+      setCurrentNote(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
+    } else if (isEditDialogOpen) {
+      setCurrentEditData(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
+    }
   };
 
 
@@ -506,7 +516,6 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        onOpenManageTagsDialog={handleOpenManageTagsDialog}
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -581,21 +590,49 @@ export default function KnowledgeCanvasPage() {
                 />
               </div>
             )}
-             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="dialog-tags" className="text-right">
+            {/* New Tag Input Section */}
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label htmlFor="dialog-tags-input" className="text-right pt-2">
                 Tags
               </Label>
-              <Input
-                id="dialog-tags"
-                value={editingNodeId ? currentEditData.tagsString : currentNote.tagsString}
-                onChange={(e) =>
-                  editingNodeId
-                    ? setCurrentEditData((prev) => ({ ...prev, tagsString: e.target.value }))
-                    : setCurrentNote((prev) => ({ ...prev, tagsString: e.target.value }))
-                }
-                className="col-span-3"
-                placeholder="tag1, tag2, tag3"
-              />
+              <div className="col-span-3">
+                <div className="flex gap-2">
+                  <Input
+                    id="dialog-tags-input"
+                    value={tagInputValue}
+                    onChange={(e) => setTagInputValue(e.target.value)}
+                    className="flex-grow"
+                    placeholder="Add a tag"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddTagToDialog();
+                      }
+                    }}
+                  />
+                  <Button type="button" onClick={handleAddTagToDialog} variant="outline" size="icon">
+                    <PlusCircleIcon className="h-4 w-4" />
+                    <span className="sr-only">Add Tag</span>
+                  </Button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(editingNodeId ? currentEditData.tags : currentNote.tags).map(tag => (
+                    <Badge key={tag} variant="secondary" className="flex items-center gap-1">
+                      {tag}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-auto w-auto p-0.5 hover:bg-destructive/20"
+                        onClick={() => handleRemoveTagFromDialog(tag)}
+                      >
+                        <XIcon className="h-3 w-3 text-destructive" />
+                        <span className="sr-only">Remove tag {tag}</span>
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
           <AlertDialogFooter>
@@ -606,39 +643,8 @@ export default function KnowledgeCanvasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Manage Tags Dialog */}
-      <AlertDialog open={isManageTagsDialogOpen} onOpenChange={(isOpen) => !isOpen && handleCloseManageTagsDialog()}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Manage Tags</AlertDialogTitle>
-            <AlertDialogDescription>
-              View and remove existing tags from the system. Removing a tag here will remove it from all associated nodes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4 max-h-[400px] overflow-y-auto">
-            {allTags.length > 0 ? (
-              <ul className="space-y-2">
-                {allTags.map(tag => (
-                  <li key={tag} className="flex items-center justify-between p-2 border rounded-md">
-                    <span>{tag}</span>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteTag(tag)} aria-label={`Delete tag ${tag}`}>
-                      <XIcon className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted-foreground text-center">No tags found.</p>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCloseManageTagsDialog}>Close</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
     </div>
   );
 }
 
+    
