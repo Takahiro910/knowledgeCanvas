@@ -109,6 +109,8 @@ export default function KnowledgeCanvasPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const isFirstRenderForLinkModeToast = useRef(true);
   const previousLinksLengthRef = useRef(links.length);
+  const isInitialRenderForAutoLayoutEffect = useRef(true);
+
 
   useEffect(() => {
     const uniqueTags = new Set<string>();
@@ -523,12 +525,14 @@ export default function KnowledgeCanvasPage() {
     }
   };
 
- const handleAutoLayout = () => {
+ const handleAutoLayout = useCallback((isAutomaticCall = false) => {
     const nodesToLayout = filteredNodesAndLinks.displayNodes;
     const linksToConsider = filteredNodesAndLinks.displayLinks;
 
     if (nodesToLayout.length === 0) {
-      toast({ title: "No nodes to layout", description: "No nodes are currently visible to arrange." });
+      if (!isAutomaticCall) {
+        toast({ title: "No nodes to layout", description: "No nodes are currently visible to arrange." });
+      }
       return;
     }
 
@@ -618,9 +622,24 @@ export default function KnowledgeCanvasPage() {
         return n;
       })
     );
+    if (nodesToLayout.length > 0) {
+     toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, setNodes, toast]);
+  // Dependencies for useCallback for handleAutoLayout.
+  // Note: `filteredNodesAndLinks` itself depends on `nodes`, `links`, `searchTerm`, `searchDepth`, `selectedFilterTags`.
+  // This can create complex dependency chains if `handleAutoLayout` is frequently re-memoized and used in effects.
 
-    toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
-  };
+
+  useEffect(() => {
+    if (isInitialRenderForAutoLayoutEffect.current) {
+      isInitialRenderForAutoLayoutEffect.current = false;
+      return;
+    }
+    handleAutoLayout(true); // Pass true for automatic call
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, selectedFilterTags, searchDepth]); // Trigger auto-layout on filter changes
 
 
   return (
@@ -637,7 +656,7 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        onAutoLayout={handleAutoLayout}
+        onAutoLayout={() => handleAutoLayout(false)} // Manual call
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -804,4 +823,3 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
-
