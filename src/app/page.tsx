@@ -70,7 +70,7 @@ const traverseGraph = (
 
     if (neighborNode) {
         collectedLinkIds.add(link.id);
-        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds);
+        traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIdsSet);
     }
   }
   visitedNodesInPath.delete(startNodeId); // Backtrack for other paths
@@ -100,10 +100,31 @@ export default function KnowledgeCanvasPage() {
   const didPanRef = useRef(false);
   const [zoomLevel, setZoomLevel] = useState(1);
 
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
+
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const isFirstRenderForLinkModeToast = useRef(true);
   const previousLinksLengthRef = useRef(links.length);
+
+  useEffect(() => {
+    const uniqueTags = new Set<string>();
+    nodes.forEach(node => {
+      if (node.tags) {
+        node.tags.forEach(tag => uniqueTags.add(tag));
+      }
+    });
+    setAllTags(Array.from(uniqueTags).sort());
+  }, [nodes]);
+
+  const handleFilterTagToggle = (tagToToggle: string) => {
+    setSelectedFilterTags(prev =>
+      prev.includes(tagToToggle)
+        ? prev.filter(t => t !== tagToToggle)
+        : [...prev, tagToToggle]
+    );
+  };
 
 
   const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number) => {
@@ -133,7 +154,7 @@ export default function KnowledgeCanvasPage() {
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
       width: 256,
-      height: type === 'note' ? 160 : 120, // TODO: Adjust height based on content/tags?
+      height: type === 'note' ? 160 : 120, 
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
@@ -270,13 +291,10 @@ export default function KnowledgeCanvasPage() {
             targetNodeId: newSelected[1],
           };
           setLinks((prevLinks) => [...prevLinks, newLink]);
-          // Toast moved to useEffect
           return [];
         }
         return newSelected;
       });
-    } else {
-      // console.log("Node clicked (not in linking mode):", nodeId);
     }
   };
 
@@ -377,7 +395,7 @@ export default function KnowledgeCanvasPage() {
 
     const newZoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel - event.deltaY * zoomSpeed * 0.01));
 
-    if (newZoomLevel === zoomLevel) return; // No change
+    if (newZoomLevel === zoomLevel) return; 
 
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     if (!canvasBounds) return;
@@ -398,16 +416,34 @@ export default function KnowledgeCanvasPage() {
 
 
   const filteredNodesAndLinks = useMemo(() => {
-    if (!searchTerm.trim()) {
+    if (!searchTerm.trim() && selectedFilterTags.length === 0) {
       return { displayNodes: nodes, displayLinks: links };
     }
 
     const lowerSearchTerm = searchTerm.toLowerCase();
-    const matchedInitialNodes = nodes.filter(node =>
-      node.title.toLowerCase().includes(lowerSearchTerm) ||
-      (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
-      (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
-    );
+
+    let matchedInitialNodes = nodes.filter(node => {
+      const matchesSelectedTags = selectedFilterTags.length > 0
+        ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
+        : true; // If no filter tags selected, this condition passes
+
+      const matchesSearchTerm = searchTerm.trim()
+        ? (
+            node.title.toLowerCase().includes(lowerSearchTerm) ||
+            (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
+            (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
+          )
+        : true; // If no search term, this condition passes
+      
+      if (selectedFilterTags.length > 0 && searchTerm.trim()){ // Both filters active
+        return matchesSelectedTags && matchesSearchTerm;
+      } else if (selectedFilterTags.length > 0){ // Only tag filter active
+        return matchesSelectedTags;
+      } else if (searchTerm.trim()){ // Only search term active
+        return matchesSearchTerm;
+      }
+      return false; // Should not be reached if the initial empty check passed
+    });
 
     if (matchedInitialNodes.length === 0) {
       return { displayNodes: [], displayLinks: [] };
@@ -429,7 +465,7 @@ export default function KnowledgeCanvasPage() {
     );
 
     return { displayNodes, displayLinks };
-  }, [nodes, links, searchTerm, searchDepth]);
+  }, [nodes, links, searchTerm, searchDepth, selectedFilterTags]);
 
   const currentEditingNodeDetails = useMemo(() => {
     if (!editingNodeId) return null;
@@ -457,6 +493,9 @@ export default function KnowledgeCanvasPage() {
         currentDepth={searchDepth}
         onToggleLinkMode={handleToggleLinkMode}
         isLinkingMode={isLinkingMode}
+        allTags={allTags}
+        selectedFilterTags={selectedFilterTags}
+        onFilterTagToggle={handleFilterTagToggle}
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
