@@ -23,7 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
-import { XIcon, PlusCircleIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { XIcon, PlusCircleIcon, CheckIcon, Tag as TagIconLucide } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 
 // Helper to determine file type
@@ -91,6 +93,7 @@ export default function KnowledgeCanvasPage() {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
   const [tagInputValue, setTagInputValue] = useState('');
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -305,7 +308,7 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen) return;
+    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isNoteDialogOpen) return;
 
     let target = event.target as HTMLElement;
     while (target && target !== event.currentTarget) {
@@ -437,12 +440,19 @@ export default function KnowledgeCanvasPage() {
       } else if (searchTerm.trim()){
         return matchesSearchTerm;
       }
-      return false;
+      return false; // Should not happen if either filter is active
     });
 
-    if (matchedInitialNodes.length === 0) {
-      return { displayNodes: [], displayLinks: [] };
+
+    if (matchedInitialNodes.length === 0 && (searchTerm.trim() || selectedFilterTags.length > 0)) {
+       return { displayNodes: [], displayLinks: [] };
     }
+     if (matchedInitialNodes.length === 0 && !searchTerm.trim() && selectedFilterTags.length === 0) {
+      // This case means no filters active, but somehow matchedInitialNodes is empty.
+      // This can happen if `nodes` itself is empty. Return all (empty) nodes/links.
+      return { displayNodes: nodes, displayLinks: links };
+    }
+
 
     const collectedNodesMap = new Map<string, NodeData>();
     const collectedLinkIds = new Set<string>();
@@ -475,6 +485,7 @@ export default function KnowledgeCanvasPage() {
     setCurrentNote({ title: '', content: '', tags: [] });
     setCurrentEditData({ title: '', content: '', tags: [] });
     setTagInputValue('');
+    setIsTagSelectorOpen(false);
   };
 
   const handleAddTagToDialog = () => {
@@ -499,6 +510,19 @@ export default function KnowledgeCanvasPage() {
     } else if (isEditDialogOpen) {
       setCurrentEditData(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
     }
+  };
+
+  const handleSelectTagFromList = (tagToAdd: string) => {
+    if (isNoteDialogOpen) {
+      if (!currentNote.tags.includes(tagToAdd)) {
+        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+      }
+    } else if (isEditDialogOpen) {
+      if (!currentEditData.tags.includes(tagToAdd)) {
+        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+      }
+    }
+    // setIsTagSelectorOpen(false); // Optionally close popover after selection
   };
 
 
@@ -540,7 +564,7 @@ export default function KnowledgeCanvasPage() {
       <Toaster />
 
       {/* Create/Edit Node Dialog */}
-      <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => !isOpen && handleCreateEditDialogClose()}>
+      <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCreateEditDialogClose(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -590,7 +614,7 @@ export default function KnowledgeCanvasPage() {
                 />
               </div>
             )}
-            {/* New Tag Input Section */}
+            {/* Tag Input Section */}
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="dialog-tags-input" className="text-right pt-2">
                 Tags
@@ -602,7 +626,7 @@ export default function KnowledgeCanvasPage() {
                     value={tagInputValue}
                     onChange={(e) => setTagInputValue(e.target.value)}
                     className="flex-grow"
-                    placeholder="Add a tag"
+                    placeholder="Add new tag and press Enter"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -610,10 +634,46 @@ export default function KnowledgeCanvasPage() {
                       }
                     }}
                   />
-                  <Button type="button" onClick={handleAddTagToDialog} variant="outline" size="icon">
-                    <PlusCircleIcon className="h-4 w-4" />
-                    <span className="sr-only">Add Tag</span>
-                  </Button>
+                  <Popover open={isTagSelectorOpen} onOpenChange={setIsTagSelectorOpen}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" size="icon">
+                        <PlusCircleIcon className="h-4 w-4" />
+                        <span className="sr-only">Add existing tag</span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[200px] p-0">
+                      <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
+                        {allTags.length > 0 ? (
+                          allTags.map(tag => {
+                            const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
+                            const isAlreadyAdded = currentDialogTags.includes(tag);
+                            return (
+                              <Button
+                                key={tag}
+                                variant="ghost"
+                                size="sm"
+                                className={cn(
+                                  "w-full justify-start text-left h-8",
+                                  isAlreadyAdded && "opacity-50 cursor-not-allowed"
+                                )}
+                                onClick={() => {
+                                  if (!isAlreadyAdded) {
+                                    handleSelectTagFromList(tag);
+                                  }
+                                }}
+                                disabled={isAlreadyAdded}
+                              >
+                                {tag}
+                                {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
+                              </Button>
+                            );
+                          })
+                        ) : (
+                          <p className="text-xs text-muted-foreground text-center p-2">No existing tags to select.</p>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(editingNodeId ? currentEditData.tags : currentNote.tags).map(tag => (
