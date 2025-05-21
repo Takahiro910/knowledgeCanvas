@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { XIcon, PlusCircleIcon, CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -92,7 +93,9 @@ export default function KnowledgeCanvasPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
+  
   const [tagInputValue, setTagInputValue] = useState('');
+  const [tagSearchTerm, setTagSearchTerm] = useState(''); // For searching existing tags in popover
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
 
 
@@ -182,6 +185,7 @@ export default function KnowledgeCanvasPage() {
   const handleCreateNote = useCallback(() => {
     setCurrentNote({ title: '', content: '', tags: [] });
     setTagInputValue('');
+    setTagSearchTerm('');
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
@@ -208,6 +212,7 @@ export default function KnowledgeCanvasPage() {
         tags: nodeToEdit.tags || []
       });
       setTagInputValue('');
+      setTagSearchTerm('');
       setIsEditDialogOpen(true);
       setIsNoteDialogOpen(false);
     }
@@ -486,6 +491,7 @@ export default function KnowledgeCanvasPage() {
     setCurrentNote({ title: '', content: '', tags: [] });
     setCurrentEditData({ title: '', content: '', tags: [] });
     setTagInputValue('');
+    setTagSearchTerm('');
     setIsTagSelectorOpen(false);
   };
 
@@ -523,7 +529,16 @@ export default function KnowledgeCanvasPage() {
         setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
       }
     }
+     // Optionally close popover after selection
+    // setIsTagSelectorOpen(false); 
   };
+
+  const filteredAvailableTags = useMemo(() => {
+    if (!tagSearchTerm.trim()) {
+      return allTags;
+    }
+    return allTags.filter(tag => tag.toLowerCase().includes(tagSearchTerm.toLowerCase()));
+  }, [allTags, tagSearchTerm]);
 
  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
     const nodesToLayout = filteredNodesAndLinks.displayNodes;
@@ -627,9 +642,6 @@ export default function KnowledgeCanvasPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, setNodes, toast]);
-  // Dependencies for useCallback for handleAutoLayout.
-  // Note: `filteredNodesAndLinks` itself depends on `nodes`, `links`, `searchTerm`, `searchDepth`, `selectedFilterTags`.
-  // This can create complex dependency chains if `handleAutoLayout` is frequently re-memoized and used in effects.
 
 
   useEffect(() => {
@@ -637,9 +649,9 @@ export default function KnowledgeCanvasPage() {
       isInitialRenderForAutoLayoutEffect.current = false;
       return;
     }
-    handleAutoLayout(true); // Pass true for automatic call
+    handleAutoLayout(true); 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, selectedFilterTags, searchDepth]); // Trigger auto-layout on filter changes
+  }, [searchTerm, selectedFilterTags, searchDepth]); 
 
 
   return (
@@ -656,7 +668,7 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        onAutoLayout={() => handleAutoLayout(false)} // Manual call
+        onAutoLayout={() => handleAutoLayout(false)} 
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -755,40 +767,51 @@ export default function KnowledgeCanvasPage() {
                     <PopoverTrigger asChild>
                       <Button type="button" variant="outline" size="icon">
                         <PlusCircleIcon className="h-4 w-4" />
-                        <span className="sr-only">Add existing tag</span>
+                        <span className="sr-only">Select existing tag</span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[200px] p-0">
-                      <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
-                        {allTags.length > 0 ? (
-                          allTags.map(tag => {
-                            const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
-                            const isAlreadyAdded = currentDialogTags.includes(tag);
-                            return (
-                              <Button
-                                key={tag}
-                                variant="ghost"
-                                size="sm"
-                                className={cn(
-                                  "w-full justify-start text-left h-8",
-                                  isAlreadyAdded && "opacity-50 cursor-not-allowed"
-                                )}
-                                onClick={() => {
-                                  if (!isAlreadyAdded) {
-                                    handleSelectTagFromList(tag);
-                                  }
-                                }}
-                                disabled={isAlreadyAdded}
-                              >
-                                {tag}
-                                {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
-                              </Button>
-                            );
-                          })
-                        ) : (
-                          <p className="text-xs text-muted-foreground text-center p-2">No existing tags to select.</p>
-                        )}
-                      </div>
+                    <PopoverContent className="w-[250px] p-0">
+                      <Input
+                        type="search"
+                        placeholder="Search existing tags..."
+                        value={tagSearchTerm}
+                        onChange={(e) => setTagSearchTerm(e.target.value)}
+                        className="m-2 w-[calc(100%-1rem)] text-sm h-8"
+                      />
+                      <ScrollArea className="max-h-40">
+                        <div className="flex flex-col gap-1 p-1 pt-0">
+                          {filteredAvailableTags.length > 0 ? (
+                            filteredAvailableTags.map(tag => {
+                              const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
+                              const isAlreadyAdded = currentDialogTags.includes(tag);
+                              return (
+                                <Button
+                                  key={tag}
+                                  variant="ghost"
+                                  size="sm"
+                                  className={cn(
+                                    "w-full justify-start text-left h-8",
+                                    isAlreadyAdded && "opacity-50 cursor-not-allowed"
+                                  )}
+                                  onClick={() => {
+                                    if (!isAlreadyAdded) {
+                                      handleSelectTagFromList(tag);
+                                    }
+                                  }}
+                                  disabled={isAlreadyAdded}
+                                >
+                                  {tag}
+                                  {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
+                                </Button>
+                              );
+                            })
+                          ) : (
+                            <p className="text-xs text-muted-foreground text-center p-2">
+                              {tagSearchTerm ? "No matching tags." : (allTags.length > 0 ? "All tags added or no tags found." : "No existing tags.")}
+                            </p>
+                          )}
+                        </div>
+                      </ScrollArea>
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -823,3 +846,4 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
+
