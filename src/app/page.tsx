@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { XIcon, PlusCircleIcon, CheckIcon, Tag as TagIconLucide } from 'lucide-react';
+import { XIcon, PlusCircleIcon, CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -154,7 +154,7 @@ export default function KnowledgeCanvasPage() {
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
       width: 256,
-      height: type === 'note' ? 160 : 120,
+      height: type === 'note' ? (content && content.length > 50 ? 200 : 160) : 120, // Basic height adjustment
     };
     setNodes((prevNodes) => [...prevNodes, newNode]);
     return newNode;
@@ -232,6 +232,7 @@ export default function KnowledgeCanvasPage() {
               title: currentEditData.title,
               content: n.type === 'note' ? currentEditData.content : n.content,
               tags: currentEditData.tags,
+              height: n.type === 'note' ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160) : n.height, // Adjust height on edit
             }
           : n
       )
@@ -440,7 +441,7 @@ export default function KnowledgeCanvasPage() {
       } else if (searchTerm.trim()){
         return matchesSearchTerm;
       }
-      return false; // Should not happen if either filter is active
+      return false; 
     });
 
 
@@ -448,8 +449,6 @@ export default function KnowledgeCanvasPage() {
        return { displayNodes: [], displayLinks: [] };
     }
      if (matchedInitialNodes.length === 0 && !searchTerm.trim() && selectedFilterTags.length === 0) {
-      // This case means no filters active, but somehow matchedInitialNodes is empty.
-      // This can happen if `nodes` itself is empty. Return all (empty) nodes/links.
       return { displayNodes: nodes, displayLinks: links };
     }
 
@@ -522,7 +521,80 @@ export default function KnowledgeCanvasPage() {
         setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
       }
     }
-    // setIsTagSelectorOpen(false); // Optionally close popover after selection
+  };
+
+  const handleAutoLayout = () => {
+    if (nodes.length === 0) return;
+
+    const newNodes = JSON.parse(JSON.stringify(nodes)) as NodeData[];
+    const adj = new Map<string, string[]>();
+    const inDegree = new Map<string, number>();
+
+    const DEFAULT_NODE_WIDTH = 256;
+    const DEFAULT_NODE_HEIGHT = 160;
+    const HORIZONTAL_SPACING = 100;
+    const VERTICAL_SPACING = 60;
+    const PAGE_MARGIN_X = 50;
+    const PAGE_MARGIN_Y = 50;
+
+    newNodes.forEach(n => {
+      inDegree.set(n.id, 0);
+      adj.set(n.id, []);
+    });
+
+    links.forEach(link => {
+      adj.get(link.sourceNodeId)?.push(link.targetNodeId);
+      inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
+    });
+
+    let queue = newNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
+    const layers: string[][] = [];
+    
+    while (queue.length > 0) {
+      const currentLayerNodeIds = [...queue];
+      layers.push(currentLayerNodeIds);
+      const nextQueue: string[] = [];
+      
+      currentLayerNodeIds.forEach(nodeId => {
+        (adj.get(nodeId) || []).forEach(neighborId => {
+          inDegree.set(neighborId, (inDegree.get(neighborId) || 1) - 1);
+          if ((inDegree.get(neighborId) || 0) === 0) {
+            nextQueue.push(neighborId);
+          }
+        });
+      });
+      queue = nextQueue;
+    }
+    
+    layers.forEach((layer, layerIndex) => {
+      let currentY = PAGE_MARGIN_Y;
+      const layerX = PAGE_MARGIN_X + layerIndex * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+      layer.forEach(nodeId => {
+        const nodeToPosition = newNodes.find(n => n.id === nodeId);
+        if (nodeToPosition) {
+          nodeToPosition.x = layerX;
+          nodeToPosition.y = currentY;
+          currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+        }
+      });
+    });
+
+    // Handle nodes not in layers (e.g. part of cycles or disconnected)
+    const positionedNodeIds = new Set(layers.flat());
+    let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+    if(layers.length > 0) lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING; else lastX = PAGE_MARGIN_X;
+
+    let unPositionY = PAGE_MARGIN_Y;
+    newNodes.forEach(node => {
+      if (!positionedNodeIds.has(node.id)) {
+        node.x = lastX;
+        node.y = unPositionY;
+        unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+      }
+    });
+
+    setNodes(newNodes);
+    toast({ title: "Layout Applied", description: "Nodes have been automatically arranged." });
   };
 
 
@@ -540,6 +612,7 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
+        onAutoLayout={handleAutoLayout}
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -706,5 +779,3 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
-
-    
