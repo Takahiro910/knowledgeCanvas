@@ -97,6 +97,7 @@ export default function KnowledgeCanvasPage() {
   const [tagInputValue, setTagInputValue] = useState('');
   const [tagSearchTerm, setTagSearchTerm] = useState(''); // For searching existing tags in popover
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -189,17 +190,34 @@ export default function KnowledgeCanvasPage() {
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
+    setSuggestedTitles([]); 
   }, []);
 
   const handleSaveNote = () => {
-    if (!currentNote.title.trim()) {
+    const trimmedTitle = currentNote.title.trim();
+    if (!trimmedTitle) {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-    addNode('note', currentNote.title, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
-    toast({ title: "Note Created", description: `Note "${currentNote.title}" added.` });
+
+    const isDuplicate = nodes.some(
+      (node) => node.title.toLowerCase() === trimmedTitle.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      toast({
+        title: "Duplicate Title",
+        description: "A node with this title already exists. Please use a different title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    addNode('note', trimmedTitle, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
+    toast({ title: "Note Created", description: `Note "${trimmedTitle}" added.` });
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
+    setSuggestedTitles([]);
   };
 
   const handleNodeDoubleClick = useCallback((nodeId: string) => {
@@ -215,6 +233,7 @@ export default function KnowledgeCanvasPage() {
       setTagSearchTerm('');
       setIsEditDialogOpen(true);
       setIsNoteDialogOpen(false);
+      setSuggestedTitles([]); 
     }
   }, [nodes]);
 
@@ -230,13 +249,28 @@ export default function KnowledgeCanvasPage() {
         setEditingNodeId(null);
         return;
     }
+    
+    // Optional: Check if the new title conflicts with *another* node's title
+    const isDuplicateWithOtherNode = nodes.some(
+      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
+    );
+
+    if (isDuplicateWithOtherNode) {
+      toast({
+        title: "Duplicate Title",
+        description: "Another node with this title already exists. Please use a different title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
 
     setNodes(prevNodes =>
       prevNodes.map(n =>
         n.id === editingNodeId
           ? {
               ...n,
-              title: currentEditData.title,
+              title: currentEditData.title.trim(),
               content: n.type === 'note' ? currentEditData.content : n.content,
               tags: currentEditData.tags,
               height: n.type === 'note' ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160) : n.height, // Adjust height on edit
@@ -244,9 +278,10 @@ export default function KnowledgeCanvasPage() {
           : n
       )
     );
-    toast({ title: "Node Updated", description: `"${currentEditData.title}" updated successfully.` });
+    toast({ title: "Node Updated", description: `"${currentEditData.title.trim()}" updated successfully.` });
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
+    setSuggestedTitles([]);
   };
 
   const handleToggleLinkMode = () => {
@@ -493,6 +528,7 @@ export default function KnowledgeCanvasPage() {
     setTagInputValue('');
     setTagSearchTerm('');
     setIsTagSelectorOpen(false);
+    setSuggestedTitles([]);
   };
 
   const handleAddTagToDialog = () => {
@@ -717,14 +753,47 @@ export default function KnowledgeCanvasPage() {
               <Input
                 id="dialog-title"
                 value={editingNodeId ? currentEditData.title : currentNote.title}
-                onChange={(e) =>
-                  editingNodeId
-                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
-                    : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
-                }
+                onChange={(e) => {
+                  const newTitle = e.target.value;
+                  if (editingNodeId) {
+                    setCurrentEditData(prev => ({ ...prev, title: newTitle }));
+                  } else { // Only for new notes
+                    setCurrentNote(prev => ({ ...prev, title: newTitle }));
+                    if (newTitle.trim()) {
+                      const lowerNewTitle = newTitle.toLowerCase();
+                      const matchingTitles = nodes
+                        .filter(node => node.title.toLowerCase().startsWith(lowerNewTitle))
+                        .map(node => node.title)
+                        .slice(0, 5); 
+                      setSuggestedTitles(matchingTitles);
+                    } else {
+                      setSuggestedTitles([]);
+                    }
+                  }
+                }}
                 className="col-span-3"
               />
             </div>
+            {isNoteDialogOpen && !editingNodeId && suggestedTitles.length > 0 && (
+              <div className="grid grid-cols-4 items-start gap-x-4 -mt-3"> {/* Reduced gap-y */}
+                <div className="col-start-2 col-span-3">
+                  <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
+                  <ScrollArea className="max-h-20 rounded-md border p-1">
+                    <ul className="list-none p-0 m-0">
+                      {suggestedTitles.map((title, index) => (
+                        <li 
+                          key={index} 
+                          className="text-xs text-muted-foreground p-1 hover:bg-accent/10 rounded-sm cursor-default"
+                          title={title} // Show full title on hover if truncated
+                        >
+                          {title.length > 30 ? title.substring(0,27) + "..." : title}
+                        </li>
+                      ))}
+                    </ul>
+                  </ScrollArea>
+                </div>
+              </div>
+            )}
             {(!editingNodeId || currentEditingNodeDetails?.type === 'note') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
@@ -763,7 +832,7 @@ export default function KnowledgeCanvasPage() {
                       }
                     }}
                   />
-                  <Popover open={isTagSelectorOpen} onOpenChange={setIsTagSelectorOpen}>
+                  <Popover open={isTagSelectorOpen} onOpenChange={(open) => { setIsTagSelectorOpen(open); if(open) setTagSearchTerm('');}}>
                     <PopoverTrigger asChild>
                       <Button type="button" variant="outline" size="icon">
                         <PlusCircleIcon className="h-4 w-4" />
