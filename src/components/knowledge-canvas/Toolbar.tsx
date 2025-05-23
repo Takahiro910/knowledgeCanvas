@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag, LayoutGrid } from 'lucide-react';
+import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag, LayoutGrid, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -17,6 +17,8 @@ interface ToolbarProps {
   currentDepth: number;
   onToggleLinkMode: () => void;
   isLinkingMode: boolean;
+  onToggleDeleteMode: () => void;
+  isDeleteMode: boolean;
   allTags: string[];
   selectedFilterTags: string[];
   onFilterTagToggle: (tag: string) => void;
@@ -32,6 +34,8 @@ export function Toolbar({
   currentDepth,
   onToggleLinkMode,
   isLinkingMode,
+  onToggleDeleteMode,
+  isDeleteMode,
   allTags,
   selectedFilterTags,
   onFilterTagToggle,
@@ -66,6 +70,13 @@ export function Toolbar({
           aria-label={isLinkingMode ? "Cancel linking nodes" : "Link nodes"}
         >
           <LinkIcon className="mr-2 h-4 w-4" /> {isLinkingMode ? 'Linking...' : 'Link Nodes'}
+        </Button>
+        <Button
+          variant={isDeleteMode ? "destructive" : "outline"}
+          onClick={onToggleDeleteMode}
+          aria-label={isDeleteMode ? "Cancel delete mode" : "Delete mode"}
+        >
+          <Trash2 className="mr-2 h-4 w-4" /> {isDeleteMode ? 'Deleting...' : 'Delete Mode'}
         </Button>
         <Button variant="outline" onClick={onAutoLayout} aria-label="Arrange nodes automatically">
             <LayoutGrid className="mr-2 h-4 w-4" /> Auto Layout

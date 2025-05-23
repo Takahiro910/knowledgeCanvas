@@ -21,3 +21,11 @@ export interface LinkData {
   targetNodeId: string;
 }
 
+export interface DeleteModeState {
+  isDeleteMode: boolean;
+  selectedItemsForDeletion: {
+    nodes: string[];
+    links: string[];
+  };
+}
+

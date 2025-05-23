@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas';
 import { Toolbar } from '@/components/knowledge-canvas/Toolbar';
-import type { NodeData, LinkData, FileType as AppFileType, NodeType } from '@/types';
+import type { NodeData, LinkData, FileType as AppFileType, NodeType, DeleteModeState } from '@/types';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -112,6 +112,9 @@ export default function KnowledgeCanvasPage() {
   const [searchDepth, setSearchDepth] = useState<number>(1);
   const [isLinkingMode, setIsLinkingMode] = useState(false);
   const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]);
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [selectedItemsForDeletion, setSelectedItemsForDeletion] = useState<{ nodes: string[]; links: string[]; }>({ nodes: [], links: [] });
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
   const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
@@ -122,6 +125,7 @@ export default function KnowledgeCanvasPage() {
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
   const [tagInputValue, setTagInputValue] = useState('');
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false);
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -227,7 +231,7 @@ export default function KnowledgeCanvasPage() {
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
       width: width || 256,
-      height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : 120),
+      height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : 160),
     };
 
     const nodeForDB = { // DB保存用の形式
@@ -273,9 +277,24 @@ export default function KnowledgeCanvasPage() {
     for (const file of droppedFiles) {
       const nodeTypeForFile: NodeType = 'file';
       const appFileType = getFileType(file.name);
+      
+      // Check for duplicate title
+      const isDuplicateTitle = nodes.some(
+        (node) => node.title.toLowerCase() === file.name.toLowerCase()
+      );
+
+      if (isDuplicateTitle) {
+        toast({
+          title: "Duplicate File",
+          description: `A file named "${file.name}" already exists. Skipping upload.`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      
       await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, [], dropX, dropY);
     }
-  }, [internalAddNode]);
+  }, [internalAddNode, nodes, toast]);
 
 
   const handleCreateNote = useCallback(() => {
@@ -291,6 +310,21 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
+
+    // Check for duplicate title
+    const isDuplicateTitle = nodes.some(
+      (node) => node.title.toLowerCase() === currentNote.title.trim().toLowerCase()
+    );
+
+    if (isDuplicateTitle) {
+      toast({
+        title: "Duplicate Title",
+        description: "A node with this title already exists. Please use a different title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     await internalAddNode('note', currentNote.title, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
@@ -318,8 +352,8 @@ export default function KnowledgeCanvasPage() {
           toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
           return;
       }
-      if (nodeToUpdate.type !== 'note') {
-          toast({ title: "Info", description: "Only note content can be edited directly.", variant: "default" });
+      if (nodeToUpdate.type !== 'note' && nodeToUpdate.type !== 'file') {
+          toast({ title: "Info", description: "Only note and file content can be edited directly.", variant: "default" });
           return;
       }
 
@@ -370,12 +404,25 @@ export default function KnowledgeCanvasPage() {
 
     const dataToUpdateInDB: Partial<NodeMetaData> = { // ★ NodeMetaData に合わせる
         title: currentEditData.title,
-        content: nodeBeingEdited.type === 'note' ? currentEditData.content : nodeBeingEdited.content,
+        content: currentEditData.content,
         fileType: nodeBeingEdited.fileType,
         tags: currentEditData.tags,
         width: nodeBeingEdited.width,
         height: newHeight,
     };
+
+    const isDuplicateWithOtherNode = nodes.some(
+      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
+    );
+
+    if (isDuplicateWithOtherNode) {
+      toast({
+        title: "Duplicate Title",
+        description: "Another node with this title already exists. Please use a different title.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
         if (window.electronAPI) {
@@ -387,7 +434,7 @@ export default function KnowledgeCanvasPage() {
               ? { // UIのNodeDataを更新
                   ...n,
                   title: currentEditData.title,
-                  content: nodeBeingEdited.type === 'note' ? currentEditData.content : n.content,
+                  content: currentEditData.content,
                   tags: currentEditData.tags,
                   height: newHeight,
                 }
@@ -408,6 +455,20 @@ export default function KnowledgeCanvasPage() {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
     setSelectedNodesForLinking([]);
     if (isPanning) setIsPanning(false);
+    if (isDeleteMode) {
+      setIsDeleteMode(false);
+      setSelectedItemsForDeletion({ nodes: [], links: [] });
+    }
+  };
+
+  const handleToggleDeleteMode = () => {
+    setIsDeleteMode(prevIsDeleteMode => !prevIsDeleteMode);
+    setSelectedItemsForDeletion({ nodes: [], links: [] });
+    if (isPanning) setIsPanning(false);
+    if (isLinkingMode) {
+      setIsLinkingMode(false);
+      setSelectedNodesForLinking([]);
+    }
   };
 
   useEffect(() => {
@@ -438,7 +499,17 @@ export default function KnowledgeCanvasPage() {
     }
     event.stopPropagation();
 
-    if (isLinkingMode) {
+    if (isDeleteMode) {
+      setSelectedItemsForDeletion((prev) => {
+        const isCurrentlySelected = prev.nodes.includes(nodeId);
+        return {
+          ...prev,
+          nodes: isCurrentlySelected
+            ? prev.nodes.filter((id) => id !== nodeId)
+            : [...prev.nodes, nodeId],
+        };
+      });
+    } else if (isLinkingMode) {
       setSelectedNodesForLinking((prevSelected) => {
         if (prevSelected.includes(nodeId)) {
           return prevSelected.filter((id) => id !== nodeId);
@@ -466,6 +537,20 @@ export default function KnowledgeCanvasPage() {
           return [];
         }
         return newSelected;
+      });
+    }
+  };
+
+  const handleLinkClick = (linkId: string) => {
+    if (isDeleteMode) {
+      setSelectedItemsForDeletion((prev) => {
+        const isCurrentlySelected = prev.links.includes(linkId);
+        return {
+          ...prev,
+          links: isCurrentlySelected
+            ? prev.links.filter((id) => id !== linkId)
+            : [...prev.links, linkId],
+        };
       });
     }
   };
@@ -836,6 +921,62 @@ export default function KnowledgeCanvasPage() {
     handleAutoLayout(false);
   }, [handleAutoLayout]); // handleAutoLayout に依存
 
+  // Delete key handling
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Delete' && isDeleteMode) {
+        const hasSelectedItems = selectedItemsForDeletion.nodes.length > 0 || selectedItemsForDeletion.links.length > 0;
+        if (hasSelectedItems) {
+          setIsDeleteConfirmOpen(true);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isDeleteMode, selectedItemsForDeletion]);
+
+  const handleConfirmDelete = async () => {
+    try {
+      // Delete nodes from database
+      for (const nodeId of selectedItemsForDeletion.nodes) {
+        if (window.electronAPI) {
+          await window.electronAPI.deleteNode(nodeId);
+        }
+      }
+
+      // Delete links from database
+      for (const linkId of selectedItemsForDeletion.links) {
+        if (window.electronAPI) {
+          await window.electronAPI.deleteLink(linkId);
+        }
+      }
+
+      // Update UI state
+      setNodes(prevNodes => prevNodes.filter(node => !selectedItemsForDeletion.nodes.includes(node.id)));
+      setLinks(prevLinks => prevLinks.filter(link => !selectedItemsForDeletion.links.includes(link.id)));
+      
+      // Clear selection and close dialog
+      setSelectedItemsForDeletion({ nodes: [], links: [] });
+      setIsDeleteConfirmOpen(false);
+      
+      toast({
+        title: "Success",
+        description: `Deleted ${selectedItemsForDeletion.nodes.length} node(s) and ${selectedItemsForDeletion.links.length} link(s).`,
+        variant: "default"
+      });
+    } catch (error) {
+      console.error("Failed to delete items:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete some items.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
@@ -848,6 +989,8 @@ export default function KnowledgeCanvasPage() {
         currentDepth={searchDepth}
         onToggleLinkMode={handleToggleLinkMode}
         isLinkingMode={isLinkingMode}
+        onToggleDeleteMode={handleToggleDeleteMode}
+        isDeleteMode={isDeleteMode}
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
@@ -861,6 +1004,8 @@ export default function KnowledgeCanvasPage() {
           links={filteredNodesAndLinks.displayLinks}
           selectedNodeIdsForLinking={selectedNodesForLinking}
           isLinkingMode={isLinkingMode}
+          isDeleteMode={isDeleteMode}
+          selectedItemsForDeletion={selectedItemsForDeletion}
           isPanning={isPanning}
           canvasOffset={canvasOffset}
           zoomLevel={zoomLevel}
@@ -873,6 +1018,7 @@ export default function KnowledgeCanvasPage() {
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
           onNodeContentUpdate={handleUpdateNodeContent}
+          onLinkClick={handleLinkClick}
         />
       </main>
       <Toaster />
@@ -899,18 +1045,52 @@ export default function KnowledgeCanvasPage() {
               <Label htmlFor="dialog-title" className="text-right">
                 Title
               </Label>
-              <Input
-                id="dialog-title"
-                value={editingNodeId ? currentEditData.title : currentNote.title}
-                onChange={(e) =>
-                  editingNodeId
-                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
-                    : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
-                }
-                className="col-span-3"
-              />
+              <div className="col-span-3 relative">
+                <Input
+                  id="dialog-title"
+                  value={editingNodeId ? currentEditData.title : currentNote.title}
+                  onChange={(e) =>
+                    editingNodeId
+                      ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
+                      : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
+                  }
+                  onFocus={() => setIsTitleFieldFocused(true)}
+                  onBlur={() => setIsTitleFieldFocused(false)}
+                  className="w-full"
+                />
+                {(() => {
+                  if (!isTitleFieldFocused) return null;
+                  
+                  const currentTitle = editingNodeId ? currentEditData.title : currentNote.title;
+                  const trimmedTitle = currentTitle.trim().toLowerCase();
+                  
+                  if (trimmedTitle.length < 2) return null;
+                  
+                  const matchingNodes = nodes.filter(node => 
+                    node.id !== editingNodeId && 
+                    node.title.toLowerCase().includes(trimmedTitle)
+                  );
+                  
+                  if (matchingNodes.length === 0) return null;
+                  
+                  return (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-md max-h-32 overflow-y-auto">
+                      <div className="p-2 text-xs text-muted-foreground border-b">
+                        Similar titles found:
+                      </div>
+                      {matchingNodes.slice(0, 5).map(node => (
+                        <div key={node.id} className="px-3 py-2 text-sm hover:bg-accent cursor-pointer flex items-center gap-2">
+                          <span className="text-yellow-600">⚠️</span>
+                          <span className="truncate">{node.title}</span>
+                          <span className="text-xs text-muted-foreground">({node.type})</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
-            {(!editingNodeId || currentEditingNodeDetails?.type === 'note') && (
+            {(!editingNodeId || currentEditingNodeDetails?.type === 'note' || currentEditingNodeDetails?.type === 'file') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
                   Content
@@ -924,7 +1104,7 @@ export default function KnowledgeCanvasPage() {
                       : setCurrentNote(prev => ({ ...prev, content: e.target.value }))
                   }
                   className="col-span-3 min-h-[100px]"
-                  placeholder="Type your note here..."
+                  placeholder={currentEditingNodeDetails?.type === 'file' ? "Type file description here..." : "Type your note here..."}
                 />
               </div>
             )}
@@ -1012,6 +1192,27 @@ export default function KnowledgeCanvasPage() {
             <AlertDialogCancel onClick={handleCreateEditDialogClose}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={editingNodeId ? handleSaveEditedNode : handleSaveNote}>
               {editingNodeId ? "Save Changes" : "Save Note"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedItemsForDeletion.nodes.length} node(s) and {selectedItemsForDeletion.links.length} link(s)? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

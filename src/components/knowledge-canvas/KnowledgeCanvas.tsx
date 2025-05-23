@@ -8,6 +8,8 @@ interface KnowledgeCanvasProps {
   links: LinkData[];
   selectedNodeIdsForLinking: string[];
   isLinkingMode: boolean;
+  isDeleteMode: boolean;
+  selectedItemsForDeletion: { nodes: string[]; links: string[]; };
   isPanning: boolean;
   canvasOffset: { x: number; y: number };
   zoomLevel: number;
@@ -21,6 +23,7 @@ interface KnowledgeCanvasProps {
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   onNodeContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
+  onLinkClick?: (linkId: string) => void;
 }
 
 export function KnowledgeCanvas({
@@ -28,6 +31,8 @@ export function KnowledgeCanvas({
   links,
   selectedNodeIdsForLinking,
   isLinkingMode,
+  isDeleteMode,
+  selectedItemsForDeletion,
   isPanning,
   canvasOffset,
   zoomLevel,
@@ -41,6 +46,7 @@ export function KnowledgeCanvas({
   onNodeDrag,
   canvasRef,
   onNodeContentUpdate, // ★ 新しいプロパティを受け取る
+  onLinkClick,
 }: KnowledgeCanvasProps) {
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
 
@@ -125,6 +131,8 @@ export function KnowledgeCanvas({
             onNodeDrag={onNodeDrag}
             canvasRef={canvasRef}
             isLinkingMode={isLinkingMode}
+            isDeleteMode={isDeleteMode}
+            isSelectedForDeletion={selectedItemsForDeletion.nodes.includes(node.id)}
             zoomLevel={zoomLevel}
             onContentUpdate={onNodeContentUpdate} // ★ プロパティを渡す
           />
@@ -140,6 +148,8 @@ export function KnowledgeCanvas({
             const sourceCenter = getNodeCenter(sourceNode);
             const targetCenter = getNodeCenter(targetNode);
 
+            const isSelectedForDeletion = selectedItemsForDeletion.links.includes(link.id);
+            
             return (
               <line
                 key={link.id}
@@ -147,9 +157,17 @@ export function KnowledgeCanvas({
                 y1={sourceCenter.y}
                 x2={targetCenter.x}
                 y2={targetCenter.y}
-                className="stroke-primary opacity-70"
-                strokeWidth={2.5 / zoomLevel}
+                className={isDeleteMode ? 
+                  `stroke-primary ${isSelectedForDeletion ? 'stroke-destructive opacity-90' : 'opacity-70'} cursor-pointer` :
+                  "stroke-primary opacity-70"
+                }
+                strokeWidth={isSelectedForDeletion ? 4 / zoomLevel : 2.5 / zoomLevel}
                 markerEnd="url(#arrow)"
+                onClick={isDeleteMode ? (e) => {
+                  e.stopPropagation();
+                  onLinkClick?.(link.id);
+                } : undefined}
+                style={{ pointerEvents: isDeleteMode ? 'stroke' : 'none' }}
               />
             );
           })}

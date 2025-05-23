@@ -17,6 +17,8 @@ interface NodeItemProps {
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
+  isDeleteMode: boolean;
+  isSelectedForDeletion: boolean;
   zoomLevel: number;
   onContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
 }
@@ -30,6 +32,8 @@ export function NodeItem({
   onNodeDrag,
   canvasRef,
   isLinkingMode: propsIsLinkingMode,
+  isDeleteMode,
+  isSelectedForDeletion,
   zoomLevel,
   onContentUpdate, // ★ 新しいプロパティを受け取る
 }: NodeItemProps) {
@@ -156,7 +160,7 @@ export function NodeItem({
   // ★ コンテンツエリアのダブルクリックでインライン編集を開始
   const handleContentDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Cardのダブルクリックイベントを止める
-    if (node.type === 'note' && !propsIsLinkingMode && !isEditingContent) {
+    if ((node.type === 'note' || node.type === 'file') && !propsIsLinkingMode && !isEditingContent) {
       setEditedContent(node.content || ''); // 編集開始時に現在のノードのコンテンツを設定
       setIsEditingContent(true);
     }
@@ -213,14 +217,15 @@ export function NodeItem({
         "absolute shadow-lg hover:shadow-xl transition-shadow duration-200",
         "flex flex-col",
         isSelected && "ring-2 ring-accent shadow-accent/50",
+        isSelectedForDeletion && "ring-2 ring-destructive shadow-destructive/50",
         isDragging ? "cursor-grabbing shadow-2xl z-10" :
-          (propsIsLinkingMode ? "cursor-pointer" : "cursor-grab")
+          (propsIsLinkingMode || isDeleteMode ? "cursor-pointer" : "cursor-grab")
       )}
       style={{
         left: node.x,
         top: node.y,
         width: nodeWidth,
-        minHeight: node.type === 'note' ? (node.content ? 160 : 100) : 100,
+        minHeight: node.type === 'note' ? (node.content ? 160 : 100) : 160,
         height: nodeHeight
       }}
       onMouseDown={handleMouseDown}
@@ -239,7 +244,7 @@ export function NodeItem({
           </div>
         </div>
       </CardHeader>
-      {node.type === 'note' && ( // noteタイプであれば常にCardContentを表示（空でも）
+      {(node.type === 'note' || node.type === 'file') && ( // noteタイプまたはfileタイプであればCardContentを表示
         <CardContent
           className="p-3 pt-0 text-sm overflow-hidden flex-grow"
           onDoubleClick={handleContentDoubleClick} // ★ コンテンツエリアのダブルクリック
@@ -254,7 +259,7 @@ export function NodeItem({
               onKeyDown={handleContentKeyDown}
               className="w-full h-full resize-none border border-accent ring-accent focus-visible:ring-accent"
               onMouseDown={(e) => e.stopPropagation()} // ★ ドラッグを防ぐ
-              placeholder="ノート内容を入力..."
+              placeholder={node.type === 'note' ? "ノート内容を入力..." : "ファイル内容を入力..."}
             />
           ) : (
             <p className={cn(
