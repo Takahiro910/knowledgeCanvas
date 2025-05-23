@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea'; // Textarea をインポート
 import type { NodeData } from '@/types';
 import { FileText, StickyNote as NoteIcon, Image as ImageIcon } from 'lucide-react';
 import { FilePdfIcon } from '@/components/icons/FilePdfIcon';
@@ -20,7 +19,6 @@ interface NodeItemProps {
   isDeleteMode: boolean;
   isSelectedForDeletion: boolean;
   zoomLevel: number;
-  onContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
 }
 
 export function NodeItem({
@@ -35,16 +33,11 @@ export function NodeItem({
   isDeleteMode,
   isSelectedForDeletion,
   zoomLevel,
-  onContentUpdate, // ★ 新しいプロパティを受け取る
 }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
   const didDragRef = useRef(false);
 
-  // ★ コンテンツ編集用のステート
-  const [isEditingContent, setIsEditingContent] = useState(false);
-  const [editedContent, setEditedContent] = useState(node.content || '');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 
   const renderIcon = () => {
@@ -69,11 +62,6 @@ export function NodeItem({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // テキストエリア編集中はドラッグを開始しない
-    if (isEditingContent && (e.target as HTMLElement).closest('textarea')) {
-      e.stopPropagation(); // Card の onMouseDown をトリガーさせない
-      return;
-    }
     if (e.button !== 0 || propsIsLinkingMode) {
       return;
     }
@@ -146,61 +134,12 @@ export function NodeItem({
 
   // Card全体のダブルクリックは既存の onNodeDoubleClick (モーダル表示用)
   const handleCardDoubleClick = (e: React.MouseEvent) => {
-    // コンテンツ編集中はモーダルを開かない
-    if (isEditingContent || (e.target as HTMLElement).closest('[data-editing-content="true"]')) {
-        e.stopPropagation();
-        return;
-    }
     e.stopPropagation();
     if (!propsIsLinkingMode) {
         onNodeDoubleClick(node.id, e);
     }
   };
 
-  // ★ コンテンツエリアのダブルクリックでインライン編集を開始
-  const handleContentDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Cardのダブルクリックイベントを止める
-    if ((node.type === 'note' || node.type === 'file') && !propsIsLinkingMode && !isEditingContent) {
-      setEditedContent(node.content || ''); // 編集開始時に現在のノードのコンテンツを設定
-      setIsEditingContent(true);
-    }
-  };
-
-  // ★ Textarea の変更をローカルステートに反映
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setEditedContent(e.target.value);
-  };
-
-  // ★ Textarea からフォーカスが外れたら更新を通知
-  const handleContentBlur = () => {
-    if (node.content !== editedContent) { // 内容に変更があった場合のみ更新
-      onContentUpdate(node.id, editedContent);
-    }
-    setIsEditingContent(false);
-  };
-
-  // ★ Textarea でのキー入力処理 (Enterで保存, Escapeでキャンセル)
-  const handleContentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault(); // デフォルトの改行を防ぐ
-      if (node.content !== editedContent) {
-        onContentUpdate(node.id, editedContent);
-      }
-      setIsEditingContent(false);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setEditedContent(node.content || ''); // 変更を元に戻す
-      setIsEditingContent(false);
-    }
-  };
-  
-  // ★ 編集モードになったらTextareaにフォーカス
-  useEffect(() => {
-    if (isEditingContent && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select(); // テキストを選択状態にする
-    }
-  }, [isEditingContent]);
 
 
   const nodeWidth = node.width || 256;
@@ -247,28 +186,13 @@ export function NodeItem({
       {(node.type === 'note' || node.type === 'file') && ( // noteタイプまたはfileタイプであればCardContentを表示
         <CardContent
           className="p-3 pt-0 text-sm overflow-hidden flex-grow"
-          onDoubleClick={handleContentDoubleClick} // ★ コンテンツエリアのダブルクリック
-          data-editing-content={isEditingContent} // ドラッグ抑止やモーダル表示抑止のため
         >
-          {isEditingContent ? (
-            <Textarea
-              ref={textareaRef}
-              value={editedContent}
-              onChange={handleContentChange}
-              onBlur={handleContentBlur}
-              onKeyDown={handleContentKeyDown}
-              className="w-full h-full resize-none border border-accent ring-accent focus-visible:ring-accent"
-              onMouseDown={(e) => e.stopPropagation()} // ★ ドラッグを防ぐ
-              placeholder={node.type === 'note' ? "ノート内容を入力..." : "ファイル内容を入力..."}
-            />
-          ) : (
-            <p className={cn(
-                "whitespace-pre-wrap break-words",
-                node.content ? "line-clamp-3" : "text-muted-foreground italic" // コンテンツがない場合はプレースホルダー表示
-            )}>
-              {node.content || (propsIsLinkingMode || isDragging ? '' : '（ダブルクリックして編集）')}
-            </p>
-          )}
+          <p className={cn(
+              "whitespace-pre-wrap break-words",
+              node.content ? "line-clamp-3" : "text-muted-foreground italic"
+          )}>
+            {node.content || ''}
+          </p>
         </CardContent>
       )}
       {(node.tags && node.tags.length > 0) && (

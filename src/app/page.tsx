@@ -125,6 +125,7 @@ export default function KnowledgeCanvasPage() {
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
   const [tagInputValue, setTagInputValue] = useState('');
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [tagSearchValue, setTagSearchValue] = useState('');
   const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false);
 
 
@@ -138,6 +139,13 @@ export default function KnowledgeCanvasPage() {
   const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
 
   const { toast } = useToast();
+
+  // Clear tag search value when tag selector is closed
+  useEffect(() => {
+    if (!isTagSelectorOpen) {
+      setTagSearchValue('');
+    }
+  }, [isTagSelectorOpen]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const isFirstRenderForLinkModeToast = useRef(true);
   const previousLinksLengthRef = useRef(links.length);
@@ -1135,34 +1143,47 @@ export default function KnowledgeCanvasPage() {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[200px] p-0">
+                      <div className="p-2 border-b">
+                        <Input
+                          type="text"
+                          placeholder="Search tags..."
+                          value={tagSearchValue}
+                          onChange={(e) => setTagSearchValue(e.target.value)}
+                          className="h-8"
+                        />
+                      </div>
                       <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
                         {allTags.length > 0 ? (
-                          allTags.map(tag => {
-                            const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
-                            const isAlreadyAdded = currentDialogTags.includes(tag);
-                            return (
-                              <Button
-                                key={tag}
-                                variant="ghost"
-                                size="sm"
-                                className={cn(
-                                  "w-full justify-start text-left h-8",
-                                  isAlreadyAdded && "opacity-50 cursor-not-allowed"
-                                )}
-                                onClick={() => {
-                                  if (!isAlreadyAdded) {
-                                    handleSelectTagFromList(tag);
-                                  }
-                                }}
-                                disabled={isAlreadyAdded}
-                              >
-                                {tag}
-                                {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
-                              </Button>
-                            );
-                          })
+                          allTags
+                            .filter(tag => tag.toLowerCase().includes(tagSearchValue.toLowerCase()))
+                            .map(tag => {
+                              const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
+                              const isAlreadyAdded = currentDialogTags.includes(tag);
+                              return (
+                                <Button
+                                  key={tag}
+                                  variant="ghost"
+                                  size="sm"
+                                  className={cn(
+                                    "w-full justify-start text-left h-8",
+                                    isAlreadyAdded && "opacity-50 cursor-not-allowed"
+                                  )}
+                                  onClick={() => {
+                                    if (!isAlreadyAdded) {
+                                      handleSelectTagFromList(tag);
+                                    }
+                                  }}
+                                  disabled={isAlreadyAdded}
+                                >
+                                  {tag}
+                                  {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
+                                </Button>
+                              );
+                            })
                         ) : (
-                          <p className="text-xs text-muted-foreground text-center p-2">No existing tags to select.</p>
+                          <p className="text-xs text-muted-foreground text-center p-2">
+                            {tagSearchValue ? 'No matching tags found.' : 'No existing tags to select.'}
+                          </p>
                         )}
                       </div>
                     </PopoverContent>
