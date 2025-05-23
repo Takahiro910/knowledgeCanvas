@@ -1,0 +1,38 @@
+appId: com.knowledgecanvas.app
+productName: Knowledge Canvas
+copyright: Copyright © ${author}
+npmRebuild: true # ネイティブモジュール再ビルドのため追加を推奨
+
+directories:
+  output: release/
+  buildResources: assets
+
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  # - "!electron/*" # ← この行をコメントアウトまたは削除、あるいは以下のように変更
+  - "electron/main.js"    # electronフォルダ内の特定のファイルを含める
+  - "electron/preload.js" # electronフォルダ内の特定のファイルを含める
+  - "electron/database.js"  # ★★★ electron/database.js を明示的に含める ★★★
+  - "!electron/some_other_dev_only_file.js" # もしelectronフォルダ内に開発時のみ必要なファイルがあれば除外
+  - "!*.md"
+  - "!public/samples/*"
+  - "dist/**/*"
+  - "package.json"
+
+extraResources:
+  # - from: path/to/your/models
+  #   to: models
+
+win:
+  target: nsis
+  icon: assets/icon.ico
+  # requestedExecutionLevel: requireAdministrator
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # installerIcon: assets/installerIcon.ico
+  # uninstallerIcon: assets/uninstallerIcon.ico
+  # uninstallDisplayName: Uninstall Knowledge Canvas
+  # license: LICENSE.txt

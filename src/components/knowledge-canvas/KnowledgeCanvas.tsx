@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { NodeData, LinkData } from '@/types';
 import { NodeItem } from './NodeItem';
@@ -11,16 +10,17 @@ interface KnowledgeCanvasProps {
   isLinkingMode: boolean;
   isPanning: boolean;
   canvasOffset: { x: number; y: number };
-  zoomLevel: number; 
+  zoomLevel: number;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
-  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void; // Added prop
+  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void;
   onCanvasClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasMouseDownForPan: (event: React.MouseEvent<HTMLDivElement>) => void;
-  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void; 
-  onFilesDrop: (files: File[], dropX?: number, dropY?: number) => void; // Allow drop coordinates
+  onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
+  onFilesDrop: (files: File[], dropX?: number, dropY?: number) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
+  onNodeContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
 }
 
 export function KnowledgeCanvas({
@@ -32,7 +32,7 @@ export function KnowledgeCanvas({
   canvasOffset,
   zoomLevel,
   onNodeClick,
-  onNodeDoubleClick, // Destructure new prop
+  onNodeDoubleClick,
   onCanvasClick,
   onCanvasDoubleClick,
   onCanvasMouseDownForPan,
@@ -40,6 +40,7 @@ export function KnowledgeCanvas({
   onFilesDrop,
   onNodeDrag,
   canvasRef,
+  onNodeContentUpdate, // ★ 新しいプロパティを受け取る
 }: KnowledgeCanvasProps) {
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
 
@@ -61,24 +62,23 @@ export function KnowledgeCanvas({
       const canvasBounds = canvasRef.current.getBoundingClientRect();
       const viewX = event.clientX - canvasBounds.left;
       const viewY = event.clientY - canvasBounds.top;
-      
-      // Convert drop coordinates from view space to world space
+
       const worldX = (viewX - canvasOffset.x) / zoomLevel;
       const worldY = (viewY - canvasOffset.y) / zoomLevel;
 
       onFilesDrop(Array.from(event.dataTransfer.files), worldX, worldY);
     }
   };
-  
+
   const getNodeCenter = (node: NodeData) => {
     const width = node.width || 256;
     let height = node.height;
     if (!height) {
         const cardHeaderHeight = node.type === 'note' ? (node.title ? 40 : 20) : (node.title ? 40 : 20) ;
-        const cardContentHeight = node.type === 'note' && node.content ? 80 : 0; 
-        const baseCardHeight = node.type === 'note' ? 160 : 120; 
-        height = cardHeaderHeight + cardContentHeight + (node.type === 'note' ? 20 : 10) ; 
-        height = Math.max(height, baseCardHeight); 
+        const cardContentHeight = node.type === 'note' && node.content ? 80 : 0;
+        const baseCardHeight = node.type === 'note' ? 160 : 120;
+        height = cardHeaderHeight + cardContentHeight + (node.type === 'note' ? 20 : 10) ;
+        height = Math.max(height, baseCardHeight);
     }
     return {
       x: node.x + width / 2,
@@ -103,15 +103,15 @@ export function KnowledgeCanvas({
       onClick={onCanvasClick}
       onDoubleClick={onCanvasDoubleClick}
       onMouseDown={onCanvasMouseDownForPan}
-      onWheel={onCanvasWheel} 
+      onWheel={onCanvasWheel}
     >
       <div
         className="absolute top-0 left-0"
         style={{
           transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoomLevel})`,
-          transformOrigin: '0 0', 
-          width: '5000px', 
-          height: '5000px',
+          transformOrigin: '0 0',
+          width: '5000px', // 十分な広さ
+          height: '5000px', // 十分な高さ
         }}
       >
         {nodes.map((node) => (
@@ -121,15 +121,16 @@ export function KnowledgeCanvas({
             isSelected={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
             isLinkingCandidate={selectedNodeIdsForLinking.includes(node.id) && isLinkingMode}
             onNodeClick={onNodeClick}
-            onNodeDoubleClick={onNodeDoubleClick} // Pass prop
-            onNodeDrag={onNodeDrag} 
+            onNodeDoubleClick={onNodeDoubleClick}
+            onNodeDrag={onNodeDrag}
             canvasRef={canvasRef}
             isLinkingMode={isLinkingMode}
-            zoomLevel={zoomLevel} 
+            zoomLevel={zoomLevel}
+            onContentUpdate={onNodeContentUpdate} // ★ プロパティを渡す
           />
         ))}
-        <svg 
-            className="absolute top-0 left-0 w-full h-full pointer-events-none" 
+        <svg
+            className="absolute top-0 left-0 w-full h-full pointer-events-none"
         >
           {links.map((link) => {
             const sourceNode = nodes.find((n) => n.id === link.sourceNodeId);
@@ -147,7 +148,7 @@ export function KnowledgeCanvas({
                 x2={targetCenter.x}
                 y2={targetCenter.y}
                 className="stroke-primary opacity-70"
-                strokeWidth={2.5 / zoomLevel} 
+                strokeWidth={2.5 / zoomLevel}
                 markerEnd="url(#arrow)"
               />
             );
@@ -156,11 +157,11 @@ export function KnowledgeCanvas({
             <marker
               id="arrow"
               viewBox="0 0 10 10"
-              refX="8" 
+              refX="8"
               refY="5"
-              markerWidth="6" 
+              markerWidth="6"
               markerHeight="6"
-              orient="auto-start-reverse" 
+              orient="auto-start-reverse"
             >
               <path d="M 0 0 L 10 5 L 0 10 z" className="fill-primary opacity-70" />
             </marker>
@@ -177,4 +178,3 @@ export function KnowledgeCanvas({
     </div>
   );
 }
-

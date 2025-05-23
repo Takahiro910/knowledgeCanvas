@@ -1,22 +1,23 @@
+// src/app/layout.tsx
 
 import type {Metadata} from 'next';
-import { Geist, Geist_Mono } from 'next/font/google'; // Assuming Geist is a desired modern font
+// import { Geist, Geist_Mono } from 'next/font/google'; // ← 削除
 import './globals.css';
-import { Toaster } from "@/components/ui/toaster"; // Ensure Toaster is available globally if needed, or in page.tsx
+import { Toaster } from "@/components/ui/toaster";
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
+// const geistSans = Geist({ // ← 削除
+//   variable: '--font-geist-sans',
+//   subsets: ['latin'],
+// });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+// const geistMono = Geist_Mono({ // ← 削除
+//   variable: '--font-geist-mono',
+//   subsets: ['latin'],
+// });
 
 export const metadata: Metadata = {
-  title: 'Knowledge Canvas',
-  description: 'Visually manage and link your knowledge assets.',
+  title: 'Knowledge Canvas',
+  description: 'Visually manage and link your knowledge assets.',
 };
 
 export default function RootLayout({
@@ -25,12 +26,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}>
+    // ↓ この <html> タグに suppressHydrationWarning={true} を追加します
+    <html lang="en" suppressHydrationWarning={true}> 
+      {/* ↓ <body>からフォント変数を削除。CSSでフォントを指定します */}
+      <body className="antialiased"> 
         {children}
-        {/* Toaster can also be placed here if preferred over page.tsx */}
       </body>
     </html>
   );
 }
-

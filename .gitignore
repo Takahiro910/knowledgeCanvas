@@ -19,6 +19,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -43,3 +44,45 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+# electron
+/release
+*.exe
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.snap
+*.appx
+*.msi
+
+# electron-builder output
+/build
+/dist_electron
+
+# sqlite database files
+*.db
+*.sqlite
+*.sqlite3
+
+# logs
+*.log
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# temporary files
+*.tmp
+*.temp
+
+# uploaded files (if stored locally)
+/uploads
+/files

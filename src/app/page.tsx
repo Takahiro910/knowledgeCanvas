@@ -1,8 +1,6 @@
-
 "use client";
 
-import type React from 'react';
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas';
 import { Toolbar } from '@/components/knowledge-canvas/Toolbar';
 import type { NodeData, LinkData, FileType as AppFileType, NodeType } from '@/types';
@@ -24,9 +22,38 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { XIcon, PlusCircleIcon, CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { v4 as uuidv4 } from 'uuid';
+
+// ★ DBのdataカラムに保存する内容を表す型 (page.tsx内で定義)
+interface NodeMetaData {
+  title?: string;
+  content?: string;
+  fileType?: AppFileType;
+  tags?: string[];
+  width?: number;
+  height?: number;
+  // 他に data カラムに保存するプロパティがあればここに追加
+}
+
+// Preloadで公開したAPIの型定義
+declare global {
+  interface Window {
+    electronAPI: {
+      getAllNodes: () => Promise<Array<{ id: string; type: NodeType; position: string; data: string; createdAt: string }>>; // DBの生データ型
+      getAllLinks: () => Promise<Array<{ id: string; source: string; target: string; createdAt: string }>>; // DBの生データ型
+      addNode: (node: { id: string; type: NodeType; position: string; data: string; }) => Promise<any>; // DB保存形式
+      addLink: (link: { id: string; source: string; target: string; }) => Promise<any>; // DB保存形式
+      updateNodePosition: (id: string, position: { x: number; y: number }) => Promise<any>;
+      updateNodeData: (id: string, dataToSave: Partial<NodeMetaData>) => Promise<any>; // ★ ここを修正
+      deleteNode: (id: string) => Promise<any>;
+      deleteLink: (id: string) => Promise<any>;
+      openFileDialog: () => Promise<string[]>;
+      saveFileDialog: (defaultPath?: string) => Promise<string | null>;
+    };
+  }
+}
 
 
 // Helper to determine file type
@@ -44,9 +71,9 @@ const traverseGraph = (
   startNodeId: string,
   currentDepth: number,
   maxDepth: number,
-  allNodes: NodeData[],
-  allLinks: LinkData[],
-  visitedNodesInPath: Set<string>, // Tracks nodes in the current traversal path to avoid cycles
+  allNodes: NodeData[], // UIで使うNodeData型
+  allLinks: LinkData[], // UIで使うLinkData型
+  visitedNodesInPath: Set<string>,
   collectedNodes: Map<string, NodeData>,
   collectedLinkIds: Set<string>
 ): void => {
@@ -59,7 +86,7 @@ const traverseGraph = (
   if (currentNode) {
     collectedNodes.set(startNodeId, currentNode);
   } else {
-    visitedNodesInPath.delete(startNodeId); // Backtrack
+    visitedNodesInPath.delete(startNodeId);
     return;
   }
 
@@ -74,13 +101,13 @@ const traverseGraph = (
         traverseGraph(neighborId, currentDepth + 1, maxDepth, allNodes, allLinks, visitedNodesInPath, collectedNodes, collectedLinkIds);
     }
   }
-  visitedNodesInPath.delete(startNodeId); // Backtrack for other paths
+  visitedNodesInPath.delete(startNodeId);
 };
 
 
 export default function KnowledgeCanvasPage() {
-  const [nodes, setNodes] = useState<NodeData[]>([]);
-  const [links, setLinks] = useState<LinkData[]>([]);
+  const [nodes, setNodes] = useState<NodeData[]>([]); // UIで使うNodeData型
+  const [links, setLinks] = useState<LinkData[]>([]); // UIで使うLinkData型
   const [searchTerm, setSearchTerm] = useState('');
   const [searchDepth, setSearchDepth] = useState<number>(1);
   const [isLinkingMode, setIsLinkingMode] = useState(false);
@@ -93,11 +120,8 @@ export default function KnowledgeCanvasPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
-  
   const [tagInputValue, setTagInputValue] = useState('');
-  const [tagSearchTerm, setTagSearchTerm] = useState(''); // For searching existing tags in popover
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
-  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
 
 
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -114,6 +138,50 @@ export default function KnowledgeCanvasPage() {
   const isFirstRenderForLinkModeToast = useRef(true);
   const previousLinksLengthRef = useRef(links.length);
   const isInitialRenderForAutoLayoutEffect = useRef(true);
+
+  // --- データ読み込み ---
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        if (window.electronAPI) {
+          const loadedNodesFromDB = await window.electronAPI.getAllNodes();
+          const loadedLinksFromDB = await window.electronAPI.getAllLinks();
+
+          const parsedNodes: NodeData[] = loadedNodesFromDB.map(dbNode => {
+            const position = JSON.parse(dbNode.position) as { x: number; y: number };
+            const metaData = JSON.parse(dbNode.data) as NodeMetaData; // NodeMetaDataとしてパース
+            return {
+              id: dbNode.id,
+              type: dbNode.type,
+              title: metaData.title || '',
+              content: metaData.content,
+              fileType: metaData.fileType,
+              tags: metaData.tags || [],
+              x: position.x,
+              y: position.y,
+              width: metaData.width,
+              height: metaData.height,
+            };
+          });
+          setNodes(parsedNodes);
+
+          const parsedLinks: LinkData[] = loadedLinksFromDB.map(dbLink => ({
+            id: dbLink.id,
+            sourceNodeId: dbLink.source,
+            targetNodeId: dbLink.target,
+          }));
+          setLinks(parsedLinks);
+
+        } else {
+          console.warn('Electron API not found. Running in browser mode?');
+        }
+      } catch (error) {
+        console.error('Failed to load data from database:', error);
+        toast({ title: "Error Loading Data", description: "Could not load data from the local database.", variant: "destructive" });
+      }
+    };
+    loadData();
+  }, [toast]);
 
 
   useEffect(() => {
@@ -135,9 +203,8 @@ export default function KnowledgeCanvasPage() {
   };
 
 
-  const addNode = useCallback((type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number) => {
+  const internalAddNode = useCallback(async (type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number, width?: number, height?: number) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
-
     let worldX: number, worldY: number;
 
     if (posX !== undefined && posY !== undefined) {
@@ -150,8 +217,8 @@ export default function KnowledgeCanvasPage() {
       worldY = (randomViewY - canvasOffset.y) / zoomLevel;
     }
 
-    const newNode: NodeData = {
-      id: crypto.randomUUID(),
+    const newNodeForUI: NodeData = { // UIで使う形式
+      id: uuidv4(),
       type,
       title,
       content,
@@ -159,12 +226,38 @@ export default function KnowledgeCanvasPage() {
       tags: tags || [],
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
-      width: 256,
-      height: type === 'note' ? (content && content.length > 50 ? 200 : 160) : 120, // Basic height adjustment
+      width: width || 256,
+      height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : 120),
     };
-    setNodes((prevNodes) => [...prevNodes, newNode]);
-    return newNode;
-  }, [canvasRef, canvasOffset.x, canvasOffset.y, zoomLevel]);
+
+    const nodeForDB = { // DB保存用の形式
+        id: newNodeForUI.id,
+        type: newNodeForUI.type,
+        position: JSON.stringify({ x: newNodeForUI.x, y: newNodeForUI.y }),
+        data: JSON.stringify({ // NodeMetaData に対応する内容
+            title: newNodeForUI.title,
+            content: newNodeForUI.content,
+            fileType: newNodeForUI.fileType,
+            tags: newNodeForUI.tags,
+            width: newNodeForUI.width,
+            height: newNodeForUI.height,
+        } as NodeMetaData),
+    };
+
+
+    try {
+        if (window.electronAPI) {
+            await window.electronAPI.addNode(nodeForDB);
+        }
+        setNodes((prevNodes) => [...prevNodes, newNodeForUI]);
+        toast({ title: `${type === 'note' ? "Note" : "File"} Created`, description: `"${title}" added.` });
+    } catch (error) {
+        console.error('Failed to add node:', error);
+        toast({ title: "Error", description: `Failed to add ${type}.`, variant: "destructive" });
+    }
+    return newNodeForUI;
+  }, [canvasRef, canvasOffset.x, canvasOffset.y, zoomLevel, toast]);
+
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -176,48 +269,31 @@ export default function KnowledgeCanvasPage() {
     }
   };
 
-  const handleFilesDrop = useCallback((droppedFiles: File[], dropX?: number, dropY?: number) => {
-    droppedFiles.forEach(file => {
-      addNode('file', file.name, undefined, getFileType(file.name), [], dropX, dropY);
-      toast({ title: "File Uploaded", description: `${file.name} added to canvas.` });
-    });
-  }, [addNode, toast]);
+  const handleFilesDrop = useCallback(async (droppedFiles: File[], dropX?: number, dropY?: number) => {
+    for (const file of droppedFiles) {
+      const nodeTypeForFile: NodeType = 'file';
+      const appFileType = getFileType(file.name);
+      await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, [], dropX, dropY);
+    }
+  }, [internalAddNode]);
+
 
   const handleCreateNote = useCallback(() => {
     setCurrentNote({ title: '', content: '', tags: [] });
     setTagInputValue('');
-    setTagSearchTerm('');
     setIsNoteDialogOpen(true);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
-    setSuggestedTitles([]); 
   }, []);
 
-  const handleSaveNote = () => {
-    const trimmedTitle = currentNote.title.trim();
-    if (!trimmedTitle) {
+  const handleSaveNote = async () => {
+    if (!currentNote.title.trim()) {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-
-    const isDuplicate = nodes.some(
-      (node) => node.title.toLowerCase() === trimmedTitle.toLowerCase()
-    );
-
-    if (isDuplicate) {
-      toast({
-        title: "Duplicate Title",
-        description: "A node with this title already exists. Please use a different title.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    addNode('note', trimmedTitle, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
-    toast({ title: "Note Created", description: `Note "${trimmedTitle}" added.` });
+    await internalAddNode('note', currentNote.title, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
-    setSuggestedTitles([]);
   };
 
   const handleNodeDoubleClick = useCallback((nodeId: string) => {
@@ -230,14 +306,52 @@ export default function KnowledgeCanvasPage() {
         tags: nodeToEdit.tags || []
       });
       setTagInputValue('');
-      setTagSearchTerm('');
       setIsEditDialogOpen(true);
       setIsNoteDialogOpen(false);
-      setSuggestedTitles([]); 
     }
   }, [nodes]);
 
-  const handleSaveEditedNode = () => {
+
+  const handleUpdateNodeContent = useCallback(async (nodeId: string, newContent: string) => {
+      const nodeToUpdate = nodes.find(n => n.id === nodeId);
+      if (!nodeToUpdate) {
+          toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
+          return;
+      }
+      if (nodeToUpdate.type !== 'note') {
+          toast({ title: "Info", description: "Only note content can be edited directly.", variant: "default" });
+          return;
+      }
+
+      const newHeight = newContent && newContent.length > 50 ? 200 : 160;
+
+      const dataToUpdateInDB: Partial<NodeMetaData> = { // ★ NodeMetaData に合わせる
+          title: nodeToUpdate.title, // タイトルは変更しない想定 (必要なら currentEditData のように別途管理)
+          content: newContent,
+          fileType: nodeToUpdate.fileType,
+          tags: nodeToUpdate.tags,
+          width: nodeToUpdate.width,
+          height: newHeight,
+      };
+
+      try {
+          if (window.electronAPI) {
+              await window.electronAPI.updateNodeData(nodeId, dataToUpdateInDB); // ★ 修正された型で呼び出し
+          }
+          setNodes(prevNodes =>
+              prevNodes.map(n =>
+                  n.id === nodeId ? { ...n, content: newContent, height: newHeight } : n
+              )
+          );
+          toast({ title: "Note Updated", description: `Content of "${nodeToUpdate.title}" updated.` });
+      } catch (error) {
+          console.error('Failed to update node content:', error);
+          toast({ title: "Error", description: "Failed to update node content.", variant: "destructive" });
+      }
+  }, [nodes, toast]);
+
+
+  const handleSaveEditedNode = async () => {
     if (!editingNodeId || !currentEditData.title.trim()) {
       toast({ title: "Error", description: "Title cannot be empty.", variant: "destructive" });
       return;
@@ -249,40 +363,46 @@ export default function KnowledgeCanvasPage() {
         setEditingNodeId(null);
         return;
     }
-    
-    // Optional: Check if the new title conflicts with *another* node's title
-    const isDuplicateWithOtherNode = nodes.some(
-      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
-    );
 
-    if (isDuplicateWithOtherNode) {
-      toast({
-        title: "Duplicate Title",
-        description: "Another node with this title already exists. Please use a different title.",
-        variant: "destructive",
-      });
-      return;
+    const newHeight = nodeBeingEdited.type === 'note'
+        ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160)
+        : nodeBeingEdited.height;
+
+    const dataToUpdateInDB: Partial<NodeMetaData> = { // ★ NodeMetaData に合わせる
+        title: currentEditData.title,
+        content: nodeBeingEdited.type === 'note' ? currentEditData.content : nodeBeingEdited.content,
+        fileType: nodeBeingEdited.fileType,
+        tags: currentEditData.tags,
+        width: nodeBeingEdited.width,
+        height: newHeight,
+    };
+
+    try {
+        if (window.electronAPI) {
+            await window.electronAPI.updateNodeData(editingNodeId, dataToUpdateInDB); // ★ 修正された型で呼び出し
+        }
+        setNodes(prevNodes =>
+          prevNodes.map(n =>
+            n.id === editingNodeId
+              ? { // UIのNodeDataを更新
+                  ...n,
+                  title: currentEditData.title,
+                  content: nodeBeingEdited.type === 'note' ? currentEditData.content : n.content,
+                  tags: currentEditData.tags,
+                  height: newHeight,
+                }
+              : n
+          )
+        );
+        toast({ title: "Node Updated", description: `"${currentEditData.title}" updated successfully.` });
+    } catch (error) {
+        console.error('Failed to save edited node:', error);
+        toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
     }
-
-
-    setNodes(prevNodes =>
-      prevNodes.map(n =>
-        n.id === editingNodeId
-          ? {
-              ...n,
-              title: currentEditData.title.trim(),
-              content: n.type === 'note' ? currentEditData.content : n.content,
-              tags: currentEditData.tags,
-              height: n.type === 'note' ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160) : n.height, // Adjust height on edit
-            }
-          : n
-      )
-    );
-    toast({ title: "Node Updated", description: `"${currentEditData.title.trim()}" updated successfully.` });
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
-    setSuggestedTitles([]);
   };
+
 
   const handleToggleLinkMode = () => {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
@@ -316,7 +436,6 @@ export default function KnowledgeCanvasPage() {
       didPanRef.current = false;
       return;
     }
-
     event.stopPropagation();
 
     if (isLinkingMode) {
@@ -326,12 +445,24 @@ export default function KnowledgeCanvasPage() {
         }
         const newSelected = [...prevSelected, nodeId];
         if (newSelected.length === 2) {
-          const newLink: LinkData = {
-            id: crypto.randomUUID(),
+          const newLinkForDB = {
+            id: uuidv4(),
+            source: newSelected[0],
+            target: newSelected[1],
+          };
+          const newLinkForUI: LinkData = {
+            id: newLinkForDB.id,
             sourceNodeId: newSelected[0],
             targetNodeId: newSelected[1],
           };
-          setLinks((prevLinks) => [...prevLinks, newLink]);
+
+          if (window.electronAPI) {
+            window.electronAPI.addLink(newLinkForDB).catch(err => {
+                console.error("Failed to add link to DB:", err);
+                toast({title: "Error", description: "Failed to save link.", variant: "destructive"});
+            });
+          }
+          setLinks((prevLinks) => [...prevLinks, newLinkForUI]);
           return [];
         }
         return newSelected;
@@ -371,12 +502,20 @@ export default function KnowledgeCanvasPage() {
     handleCreateNote();
   };
 
-  const handleNodeDrag = useCallback((nodeId: string, x: number, y: number) => {
+  const handleNodeDrag = useCallback(async (nodeId: string, x: number, y: number) => {
     setNodes(prevNodes =>
       prevNodes.map(node =>
         node.id === nodeId ? { ...node, x, y } : node
       )
     );
+    try {
+        if (window.electronAPI) {
+            // DBのpositionはJSON文字列なので、オブジェクトを渡す
+            await window.electronAPI.updateNodePosition(nodeId, { x, y });
+        }
+    } catch (error) {
+        console.error('Failed to update node position in DB:', error);
+    }
   }, []);
 
   const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -425,7 +564,7 @@ export default function KnowledgeCanvasPage() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isPanning, canvasOffset.x, canvasOffset.y]);
+  }, [isPanning]);
 
 
   const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -483,7 +622,7 @@ export default function KnowledgeCanvasPage() {
       } else if (searchTerm.trim()){
         return matchesSearchTerm;
       }
-      return false; 
+      return false;
     });
 
 
@@ -526,9 +665,7 @@ export default function KnowledgeCanvasPage() {
     setCurrentNote({ title: '', content: '', tags: [] });
     setCurrentEditData({ title: '', content: '', tags: [] });
     setTagInputValue('');
-    setTagSearchTerm('');
     setIsTagSelectorOpen(false);
-    setSuggestedTitles([]);
   };
 
   const handleAddTagToDialog = () => {
@@ -565,16 +702,7 @@ export default function KnowledgeCanvasPage() {
         setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
       }
     }
-     // Optionally close popover after selection
-    // setIsTagSelectorOpen(false); 
   };
-
-  const filteredAvailableTags = useMemo(() => {
-    if (!tagSearchTerm.trim()) {
-      return allTags;
-    }
-    return allTags.filter(tag => tag.toLowerCase().includes(tagSearchTerm.toLowerCase()));
-  }, [allTags, tagSearchTerm]);
 
  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
     const nodesToLayout = filteredNodesAndLinks.displayNodes;
@@ -615,12 +743,12 @@ export default function KnowledgeCanvasPage() {
 
     let queue = layoutNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
     const layers: string[][] = [];
-    
+
     while (queue.length > 0) {
       const currentLayerNodeIds = [...queue];
       layers.push(currentLayerNodeIds);
       const nextQueue: string[] = [];
-      
+
       currentLayerNodeIds.forEach(nodeId => {
         (adj.get(nodeId) || []).forEach(neighborId => {
           inDegree.set(neighborId, (inDegree.get(neighborId) || 1) - 1);
@@ -631,7 +759,7 @@ export default function KnowledgeCanvasPage() {
       });
       queue = nextQueue;
     }
-    
+
     const newPositionsMap = new Map<string, { x: number, y: number }>();
 
     layers.forEach((layer, layerIndex) => {
@@ -650,11 +778,7 @@ export default function KnowledgeCanvasPage() {
     let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
     if (layers.some(layer => layer.length > 0)) {
         lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING;
-    } else if (layers.length === 0 && layoutNodes.length > 0) {
-         // Handles case where no layers were formed (e.g. all nodes are in cycles or disconnected)
-         // but there are nodes to layout. Position them in the first column.
     }
-
 
     let unPositionY = PAGE_MARGIN_Y;
     layoutNodes.forEach(node => {
@@ -667,28 +791,50 @@ export default function KnowledgeCanvasPage() {
     setNodes(prevNodes =>
       prevNodes.map(n => {
         const newPosition = newPositionsMap.get(n.id);
-        if (newPosition) {
-          return { ...n, x: newPosition.x, y: newPosition.y };
+        if (newPosition && window.electronAPI) {
+            window.electronAPI.updateNodePosition(n.id, newPosition).catch(err => console.error("Failed to update node position during auto-layout:", err));
+            return { ...n, x: newPosition.x, y: newPosition.y };
         }
         return n;
       })
     );
-    if (nodesToLayout.length > 0) {
+    if (nodesToLayout.length > 0 && !isAutomaticCall) {
      toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, setNodes, toast]);
+  }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast]);
 
+  const handleAutoLayoutRef = useRef(handleAutoLayout); 
+  
+  // ★ この useEffect を追加 ★
+  useEffect(() => {
+    handleAutoLayoutRef.current = handleAutoLayout;
+  }, [handleAutoLayout]); 
 
   useEffect(() => {
     if (isInitialRenderForAutoLayoutEffect.current) {
       isInitialRenderForAutoLayoutEffect.current = false;
       return;
     }
-    handleAutoLayout(true); 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // ★ handleAutoLayoutRef.current を呼び出す ★
+    handleAutoLayoutRef.current(true); 
+  // ★ 依存配列から handleAutoLayout を削除 ★
   }, [searchTerm, selectedFilterTags, searchDepth]); 
 
+  // useEffect(() => {
+  //   if (isInitialRenderForAutoLayoutEffect.current) {
+  //     isInitialRenderForAutoLayoutEffect.current = false;
+  //     return;
+  //   }
+  //   handleAutoLayout(true);
+  // }, [searchTerm, selectedFilterTags, searchDepth, handleAutoLayout]);
+
+  const handleDepthChange = useCallback((depthArr: number[]) => {
+    setSearchDepth(depthArr[0]);
+  }, []); // setSearchDepth は安定しているので、依存配列は空でOK
+
+  const handleApplyAutoLayout = useCallback(() => {
+    handleAutoLayout(false);
+  }, [handleAutoLayout]); // handleAutoLayout に依存
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -697,14 +843,16 @@ export default function KnowledgeCanvasPage() {
         onCreateNote={handleCreateNote}
         onSearch={setSearchTerm}
         currentSearchTerm={searchTerm}
-        onDepthChange={(depthArr) => setSearchDepth(depthArr[0])}
+        // onDepthChange={(depthArr) => setSearchDepth(depthArr[0])}
+        onDepthChange={handleDepthChange}
         currentDepth={searchDepth}
         onToggleLinkMode={handleToggleLinkMode}
         isLinkingMode={isLinkingMode}
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        onAutoLayout={() => handleAutoLayout(false)} 
+        // onAutoLayout={() => handleAutoLayout(false)}
+        onAutoLayout={handleApplyAutoLayout}
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -724,6 +872,7 @@ export default function KnowledgeCanvasPage() {
           onCanvasWheel={handleCanvasWheel}
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
+          onNodeContentUpdate={handleUpdateNodeContent}
         />
       </main>
       <Toaster />
@@ -753,47 +902,14 @@ export default function KnowledgeCanvasPage() {
               <Input
                 id="dialog-title"
                 value={editingNodeId ? currentEditData.title : currentNote.title}
-                onChange={(e) => {
-                  const newTitle = e.target.value;
-                  if (editingNodeId) {
-                    setCurrentEditData(prev => ({ ...prev, title: newTitle }));
-                  } else { // Only for new notes
-                    setCurrentNote(prev => ({ ...prev, title: newTitle }));
-                    if (newTitle.trim()) {
-                      const lowerNewTitle = newTitle.toLowerCase();
-                      const matchingTitles = nodes
-                        .filter(node => node.title.toLowerCase().startsWith(lowerNewTitle))
-                        .map(node => node.title)
-                        .slice(0, 5); 
-                      setSuggestedTitles(matchingTitles);
-                    } else {
-                      setSuggestedTitles([]);
-                    }
-                  }
-                }}
+                onChange={(e) =>
+                  editingNodeId
+                    ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
+                    : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
+                }
                 className="col-span-3"
               />
             </div>
-            {isNoteDialogOpen && !editingNodeId && suggestedTitles.length > 0 && (
-              <div className="grid grid-cols-4 items-start gap-x-4 -mt-3"> {/* Reduced gap-y */}
-                <div className="col-start-2 col-span-3">
-                  <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
-                  <ScrollArea className="max-h-20 rounded-md border p-1">
-                    <ul className="list-none p-0 m-0">
-                      {suggestedTitles.map((title, index) => (
-                        <li 
-                          key={index} 
-                          className="text-xs text-muted-foreground p-1 hover:bg-accent/10 rounded-sm cursor-default"
-                          title={title} // Show full title on hover if truncated
-                        >
-                          {title.length > 30 ? title.substring(0,27) + "..." : title}
-                        </li>
-                      ))}
-                    </ul>
-                  </ScrollArea>
-                </div>
-              </div>
-            )}
             {(!editingNodeId || currentEditingNodeDetails?.type === 'note') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
@@ -812,7 +928,6 @@ export default function KnowledgeCanvasPage() {
                 />
               </div>
             )}
-            {/* Tag Input Section */}
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="dialog-tags-input" className="text-right pt-2">
                 Tags
@@ -832,55 +947,44 @@ export default function KnowledgeCanvasPage() {
                       }
                     }}
                   />
-                  <Popover open={isTagSelectorOpen} onOpenChange={(open) => { setIsTagSelectorOpen(open); if(open) setTagSearchTerm('');}}>
+                  <Popover open={isTagSelectorOpen} onOpenChange={setIsTagSelectorOpen}>
                     <PopoverTrigger asChild>
                       <Button type="button" variant="outline" size="icon">
                         <PlusCircleIcon className="h-4 w-4" />
-                        <span className="sr-only">Select existing tag</span>
+                        <span className="sr-only">Add existing tag</span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[250px] p-0">
-                      <Input
-                        type="search"
-                        placeholder="Search existing tags..."
-                        value={tagSearchTerm}
-                        onChange={(e) => setTagSearchTerm(e.target.value)}
-                        className="m-2 w-[calc(100%-1rem)] text-sm h-8"
-                      />
-                      <ScrollArea className="max-h-40">
-                        <div className="flex flex-col gap-1 p-1 pt-0">
-                          {filteredAvailableTags.length > 0 ? (
-                            filteredAvailableTags.map(tag => {
-                              const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
-                              const isAlreadyAdded = currentDialogTags.includes(tag);
-                              return (
-                                <Button
-                                  key={tag}
-                                  variant="ghost"
-                                  size="sm"
-                                  className={cn(
-                                    "w-full justify-start text-left h-8",
-                                    isAlreadyAdded && "opacity-50 cursor-not-allowed"
-                                  )}
-                                  onClick={() => {
-                                    if (!isAlreadyAdded) {
-                                      handleSelectTagFromList(tag);
-                                    }
-                                  }}
-                                  disabled={isAlreadyAdded}
-                                >
-                                  {tag}
-                                  {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
-                                </Button>
-                              );
-                            })
-                          ) : (
-                            <p className="text-xs text-muted-foreground text-center p-2">
-                              {tagSearchTerm ? "No matching tags." : (allTags.length > 0 ? "All tags added or no tags found." : "No existing tags.")}
-                            </p>
-                          )}
-                        </div>
-                      </ScrollArea>
+                    <PopoverContent className="w-[200px] p-0">
+                      <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
+                        {allTags.length > 0 ? (
+                          allTags.map(tag => {
+                            const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
+                            const isAlreadyAdded = currentDialogTags.includes(tag);
+                            return (
+                              <Button
+                                key={tag}
+                                variant="ghost"
+                                size="sm"
+                                className={cn(
+                                  "w-full justify-start text-left h-8",
+                                  isAlreadyAdded && "opacity-50 cursor-not-allowed"
+                                )}
+                                onClick={() => {
+                                  if (!isAlreadyAdded) {
+                                    handleSelectTagFromList(tag);
+                                  }
+                                }}
+                                disabled={isAlreadyAdded}
+                              >
+                                {tag}
+                                {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
+                              </Button>
+                            );
+                          })
+                        ) : (
+                          <p className="text-xs text-muted-foreground text-center p-2">No existing tags to select.</p>
+                        )}
+                      </div>
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -915,4 +1019,3 @@ export default function KnowledgeCanvasPage() {
     </div>
   );
 }
-
