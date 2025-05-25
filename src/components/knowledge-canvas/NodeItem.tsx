@@ -1,24 +1,27 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import type { NodeData } from '@/types';
-import { FileText, StickyNote as NoteIcon, Image as ImageIcon } from 'lucide-react';
+import { FileText, StickyNote as NoteIcon, Image as ImageIcon, ExternalLink } from 'lucide-react'; // Added ExternalLink
 import { FilePdfIcon } from '@/components/icons/FilePdfIcon';
 import { FileDocxIcon } from '@/components/icons/FileDocxIcon';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button'; // Added Button
+import { useToast } from '@/hooks/use-toast'; // Added useToast
 
 interface NodeItemProps {
   node: NodeData;
   isSelected: boolean;
   isLinkingCandidate: boolean;
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
-  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void; // モーダルを開くための既存のハンドラ
+  onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
   isDeleteMode: boolean;
   isSelectedForDeletion: boolean;
   zoomLevel: number;
+  onContentUpdate: (nodeId: string, newContent: string) => void; // Existing prop for inline editing
 }
 
 export function NodeItem({
@@ -33,13 +36,14 @@ export function NodeItem({
   isDeleteMode,
   isSelectedForDeletion,
   zoomLevel,
+  onContentUpdate, // Added for consistency, though file content isn't edited inline
 }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
   const didDragRef = useRef(false);
+  const { toast } = useToast(); // For showing errors if file open fails
 
-
-
+  // ... (renderIcon, handleMouseDown, mouseMoveHandler, mouseUpHandler, useEffect for drag remain the same)
   const renderIcon = () => {
     if (node.type === 'note') {
       return <NoteIcon className="h-6 w-6 text-primary" />;
@@ -64,6 +68,10 @@ export function NodeItem({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || propsIsLinkingMode) {
       return;
+    }
+    // Prevent drag if clicking on the open file button
+    if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
+        return;
     }
     e.preventDefault();
     e.stopPropagation();
@@ -126,28 +134,49 @@ export function NodeItem({
       e.stopPropagation();
       return;
     }
+    // Prevent node selection if clicking on the open file button
+    if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
+        e.stopPropagation();
+        return;
+    }
     if (propsIsLinkingMode) {
       e.stopPropagation();
     }
     onNodeClick(node.id, e);
   };
 
-  // Card全体のダブルクリックは既存の onNodeDoubleClick (モーダル表示用)
   const handleCardDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Prevent double click if clicking on the open file button
+    if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
+        return;
+    }
     if (!propsIsLinkingMode) {
         onNodeDoubleClick(node.id, e);
     }
   };
 
-
+  const handleOpenFile = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent node selection or drag
+    if (node.type === 'file' && node.filePath && window.electronAPI) {
+      try {
+        const success = await window.electronAPI.openLocalFile(node.filePath);
+        if (!success) {
+          // Error message handled in main.js via dialog
+          // Optionally, show a toast here too if main process returns specific error info
+        }
+      } catch (error) {
+        console.error("Error opening file:", error);
+        toast({ title: "Error", description: "Could not open the file.", variant: "destructive" });
+      }
+    }
+  };
 
   const nodeWidth = node.width || 256;
   let nodeHeight = node.height || 'auto';
-  if (node.type === 'note' && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
+    if (node.type === 'note' && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
     // Basic auto-height adjustment if tags are present for notes.
   }
-
 
   return (
     <Card
@@ -169,7 +198,7 @@ export function NodeItem({
       }}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
-      onDoubleClick={handleCardDoubleClick} // Card全体のダブルクリック
+      onDoubleClick={handleCardDoubleClick}
       aria-selected={isSelected}
     >
       <CardHeader className="p-3">
@@ -181,17 +210,32 @@ export function NodeItem({
             </CardTitle>
             {node.fileType && <CardDescription className="text-xs">{node.fileType}</CardDescription>}
           </div>
+          {node.type === 'file' && node.filePath && (
+            <Button
+              data-open-file-button="true"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 flex-shrink-0"
+              onClick={handleOpenFile}
+              title={`Open ${node.title}`}
+              aria-label={`Open file ${node.title}`}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardHeader>
-      {(node.type === 'note' || node.type === 'file') && ( // noteタイプまたはfileタイプであればCardContentを表示
+      {(node.type === 'note' || (node.type === 'file' && node.content)) && ( // Show content for notes, or for files if description exists
         <CardContent
           className="p-3 pt-0 text-sm overflow-hidden flex-grow"
+          // Double click on content area for files could also open the file, or edit description
+          // For notes, this is for inline editing if implemented.
         >
           <p className={cn(
               "whitespace-pre-wrap break-words",
               node.content ? "line-clamp-3" : "text-muted-foreground italic"
           )}>
-            {node.content || ''}
+            {node.content || (node.type === 'file' ? 'No description.' : '')}
           </p>
         </CardContent>
       )}

@@ -22,15 +22,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { XIcon, PlusCircleIcon, CheckIcon } from 'lucide-react';
+import { XIcon, PlusCircleIcon, CheckIcon, FileIcon } from 'lucide-react'; // FileIcon を追加
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path'; // path をインポート
 
 // ★ DBのdataカラムに保存する内容を表す型 (page.tsx内で定義)
 interface NodeMetaData {
   title?: string;
   content?: string;
   fileType?: AppFileType;
+  filePath?: string; // filePath を追加
   tags?: string[];
   width?: number;
   height?: number;
@@ -41,16 +43,20 @@ interface NodeMetaData {
 declare global {
   interface Window {
     electronAPI: {
-      getAllNodes: () => Promise<Array<{ id: string; type: NodeType; position: string; data: string; createdAt: string }>>; // DBの生データ型
-      getAllLinks: () => Promise<Array<{ id: string; source: string; target: string; createdAt: string }>>; // DBの生データ型
-      addNode: (node: { id: string; type: NodeType; position: string; data: string; }) => Promise<any>; // DB保存形式
-      addLink: (link: { id: string; source: string; target: string; }) => Promise<any>; // DB保存形式
+      getAllNodes: () => Promise<Array<{ id: string; type: NodeType; position: string; data: string; createdAt: string }>>;
+      getAllLinks: () => Promise<Array<{ id: string; source: string; target: string; createdAt: string }>>;
+      addNode: (node: { id: string; type: NodeType; position: string; data: string; }) => Promise<any>;
+      addLink: (link: { id: string; source: string; target: string; }) => Promise<any>;
       updateNodePosition: (id: string, position: { x: number; y: number }) => Promise<any>;
-      updateNodeData: (id: string, dataToSave: Partial<NodeMetaData>) => Promise<any>; // ★ ここを修正
+      updateNodeData: (id: string, dataToSave: Partial<NodeMetaData>) => Promise<any>;
       deleteNode: (id: string) => Promise<any>;
       deleteLink: (id: string) => Promise<any>;
       openFileDialog: () => Promise<string[]>;
       saveFileDialog: (defaultPath?: string) => Promise<string | null>;
+      // New Local File Operations
+      saveLocalFile: (fileName: string, fileDataBuffer: ArrayBuffer) => Promise<string | null>;
+      openLocalFile: (filePath: string) => Promise<boolean>;
+      getUploadsDir: () => Promise<string>;
     };
   }
 }
@@ -71,8 +77,8 @@ const traverseGraph = (
   startNodeId: string,
   currentDepth: number,
   maxDepth: number,
-  allNodes: NodeData[], // UIで使うNodeData型
-  allLinks: LinkData[], // UIで使うLinkData型
+  allNodes: NodeData[],
+  allLinks: LinkData[],
   visitedNodesInPath: Set<string>,
   collectedNodes: Map<string, NodeData>,
   collectedLinkIds: Set<string>
@@ -106,8 +112,8 @@ const traverseGraph = (
 
 
 export default function KnowledgeCanvasPage() {
-  const [nodes, setNodes] = useState<NodeData[]>([]); // UIで使うNodeData型
-  const [links, setLinks] = useState<LinkData[]>([]); // UIで使うLinkData型
+  const [nodes, setNodes] = useState<NodeData[]>([]);
+  const [links, setLinks] = useState<LinkData[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchDepth, setSearchDepth] = useState<number>(1);
   const [isLinkingMode, setIsLinkingMode] = useState(false);
@@ -140,7 +146,6 @@ export default function KnowledgeCanvasPage() {
 
   const { toast } = useToast();
 
-  // Clear tag search value when tag selector is closed
   useEffect(() => {
     if (!isTagSelectorOpen) {
       setTagSearchValue('');
@@ -161,13 +166,14 @@ export default function KnowledgeCanvasPage() {
 
           const parsedNodes: NodeData[] = loadedNodesFromDB.map(dbNode => {
             const position = JSON.parse(dbNode.position) as { x: number; y: number };
-            const metaData = JSON.parse(dbNode.data) as NodeMetaData; // NodeMetaDataとしてパース
+            const metaData = JSON.parse(dbNode.data) as NodeMetaData;
             return {
               id: dbNode.id,
               type: dbNode.type,
               title: metaData.title || '',
               content: metaData.content,
               fileType: metaData.fileType,
+              filePath: metaData.filePath, // filePath を追加
               tags: metaData.tags || [],
               x: position.x,
               y: position.y,
@@ -215,7 +221,18 @@ export default function KnowledgeCanvasPage() {
   };
 
 
-  const internalAddNode = useCallback(async (type: NodeType, title: string, content?: string, fileType?: AppFileType, tags?: string[], posX?: number, posY?: number, width?: number, height?: number) => {
+  const internalAddNode = useCallback(async (
+    type: NodeType,
+    title: string,
+    content?: string,
+    fileType?: AppFileType,
+    filePath?: string, // filePath パラメータを追加
+    tags?: string[],
+    posX?: number,
+    posY?: number,
+    width?: number,
+    height?: number
+  ) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     let worldX: number, worldY: number;
 
@@ -229,12 +246,13 @@ export default function KnowledgeCanvasPage() {
       worldY = (randomViewY - canvasOffset.y) / zoomLevel;
     }
 
-    const newNodeForUI: NodeData = { // UIで使う形式
+    const newNodeForUI: NodeData = {
       id: uuidv4(),
       type,
       title,
       content,
       fileType,
+      filePath, // filePath を追加
       tags: tags || [],
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
@@ -242,14 +260,15 @@ export default function KnowledgeCanvasPage() {
       height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : 160),
     };
 
-    const nodeForDB = { // DB保存用の形式
+    const nodeForDB = {
         id: newNodeForUI.id,
         type: newNodeForUI.type,
         position: JSON.stringify({ x: newNodeForUI.x, y: newNodeForUI.y }),
-        data: JSON.stringify({ // NodeMetaData に対応する内容
+        data: JSON.stringify({
             title: newNodeForUI.title,
             content: newNodeForUI.content,
             fileType: newNodeForUI.fileType,
+            filePath: newNodeForUI.filePath, // filePath を追加
             tags: newNodeForUI.tags,
             width: newNodeForUI.width,
             height: newNodeForUI.height,
@@ -282,11 +301,15 @@ export default function KnowledgeCanvasPage() {
   };
 
   const handleFilesDrop = useCallback(async (droppedFiles: File[], dropX?: number, dropY?: number) => {
+    if (!window.electronAPI) {
+        toast({ title: "Error", description: "File operations are not available.", variant: "destructive" });
+        return;
+    }
+
     for (const file of droppedFiles) {
       const nodeTypeForFile: NodeType = 'file';
       const appFileType = getFileType(file.name);
       
-      // Check for duplicate title
       const isDuplicateTitle = nodes.some(
         (node) => node.title.toLowerCase() === file.name.toLowerCase()
       );
@@ -300,7 +323,19 @@ export default function KnowledgeCanvasPage() {
         continue;
       }
       
-      await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, [], dropX, dropY);
+      try {
+        const fileBuffer = await file.arrayBuffer();
+        const savedFilePath = await window.electronAPI.saveLocalFile(file.name, fileBuffer);
+
+        if (savedFilePath) {
+          await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, savedFilePath, [], dropX, dropY);
+        } else {
+          toast({ title: "Error Saving File", description: `Could not save "${file.name}" locally.`, variant: "destructive" });
+        }
+      } catch (error) {
+        console.error("Error processing dropped file:", error);
+        toast({ title: "Error Processing File", description: `Failed to process "${file.name}".`, variant: "destructive" });
+      }
     }
   }, [internalAddNode, nodes, toast]);
 
@@ -318,10 +353,8 @@ export default function KnowledgeCanvasPage() {
       toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
       return;
     }
-
-    // Check for duplicate title
     const isDuplicateTitle = nodes.some(
-      (node) => node.title.toLowerCase() === currentNote.title.trim().toLowerCase()
+      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentNote.title.trim().toLowerCase()
     );
 
     if (isDuplicateTitle) {
@@ -333,7 +366,8 @@ export default function KnowledgeCanvasPage() {
       return;
     }
 
-    await internalAddNode('note', currentNote.title, currentNote.content, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
+    // For notes, filePath is undefined
+    await internalAddNode('note', currentNote.title, currentNote.content, undefined, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
   };
@@ -346,6 +380,7 @@ export default function KnowledgeCanvasPage() {
         title: nodeToEdit.title,
         content: nodeToEdit.content || '',
         tags: nodeToEdit.tags || []
+        // filePath is part of nodeToEdit, not directly in currentEditData for modification here
       });
       setTagInputValue('');
       setIsEditDialogOpen(true);
@@ -360,17 +395,18 @@ export default function KnowledgeCanvasPage() {
           toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
           return;
       }
-      if (nodeToUpdate.type !== 'note' && nodeToUpdate.type !== 'file') {
-          toast({ title: "Info", description: "Only note and file content can be edited directly.", variant: "default" });
+      if (nodeToUpdate.type !== 'note') { // Only notes have inline content editing this way
+          toast({ title: "Info", description: "Only note content can be edited directly here. Edit file descriptions via double-click.", variant: "default" });
           return;
       }
 
       const newHeight = newContent && newContent.length > 50 ? 200 : 160;
 
-      const dataToUpdateInDB: Partial<NodeMetaData> = { // ★ NodeMetaData に合わせる
-          title: nodeToUpdate.title, // タイトルは変更しない想定 (必要なら currentEditData のように別途管理)
+      const dataToUpdateInDB: Partial<NodeMetaData> = {
+          title: nodeToUpdate.title,
           content: newContent,
           fileType: nodeToUpdate.fileType,
+          filePath: nodeToUpdate.filePath, // Preserve filePath
           tags: nodeToUpdate.tags,
           width: nodeToUpdate.width,
           height: newHeight,
@@ -378,7 +414,7 @@ export default function KnowledgeCanvasPage() {
 
       try {
           if (window.electronAPI) {
-              await window.electronAPI.updateNodeData(nodeId, dataToUpdateInDB); // ★ 修正された型で呼び出し
+              await window.electronAPI.updateNodeData(nodeId, dataToUpdateInDB);
           }
           setNodes(prevNodes =>
               prevNodes.map(n =>
@@ -408,12 +444,14 @@ export default function KnowledgeCanvasPage() {
 
     const newHeight = nodeBeingEdited.type === 'note'
         ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160)
-        : nodeBeingEdited.height;
+        : nodeBeingEdited.height; // File node height might not change based on description
 
-    const dataToUpdateInDB: Partial<NodeMetaData> = { // ★ NodeMetaData に合わせる
+    // filePath is preserved from nodeBeingEdited, not from currentEditData
+    const dataToUpdateInDB: Partial<NodeMetaData> = {
         title: currentEditData.title,
-        content: currentEditData.content,
+        content: currentEditData.content, // For files, this is the description
         fileType: nodeBeingEdited.fileType,
+        filePath: nodeBeingEdited.filePath, // Crucial: preserve existing filePath
         tags: currentEditData.tags,
         width: nodeBeingEdited.width,
         height: newHeight,
@@ -434,17 +472,18 @@ export default function KnowledgeCanvasPage() {
 
     try {
         if (window.electronAPI) {
-            await window.electronAPI.updateNodeData(editingNodeId, dataToUpdateInDB); // ★ 修正された型で呼び出し
+            await window.electronAPI.updateNodeData(editingNodeId, dataToUpdateInDB);
         }
         setNodes(prevNodes =>
           prevNodes.map(n =>
             n.id === editingNodeId
-              ? { // UIのNodeDataを更新
-                  ...n,
+              ? {
+                  ...n, // Spread existing node data first
                   title: currentEditData.title,
-                  content: currentEditData.content,
+                  content: currentEditData.content, // Update content/description
                   tags: currentEditData.tags,
                   height: newHeight,
+                  // filePath is part of 'n' and dataToUpdateInDB, so it's preserved
                 }
               : n
           )
@@ -504,6 +543,11 @@ export default function KnowledgeCanvasPage() {
     if (didPanRef.current || (event.target as HTMLElement).closest('[data-dragging="true"]')) {
       didPanRef.current = false;
       return;
+    }
+     // Prevent node selection if clicking on the open file button within NodeItem
+    if ((event.target as HTMLElement).closest('[data-open-file-button="true"]')) {
+        event.stopPropagation();
+        return;
     }
     event.stopPropagation();
 
@@ -603,7 +647,6 @@ export default function KnowledgeCanvasPage() {
     );
     try {
         if (window.electronAPI) {
-            // DBのpositionはJSON文字列なので、オブジェクトを渡す
             await window.electronAPI.updateNodePosition(nodeId, { x, y });
         }
     } catch (error) {
@@ -704,6 +747,7 @@ export default function KnowledgeCanvasPage() {
         ? (
             node.title.toLowerCase().includes(lowerSearchTerm) ||
             (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
+            (node.type === 'file' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
             (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
           )
         : true;
@@ -898,7 +942,6 @@ export default function KnowledgeCanvasPage() {
 
   const handleAutoLayoutRef = useRef(handleAutoLayout); 
   
-  // ★ この useEffect を追加 ★
   useEffect(() => {
     handleAutoLayoutRef.current = handleAutoLayout;
   }, [handleAutoLayout]); 
@@ -908,28 +951,17 @@ export default function KnowledgeCanvasPage() {
       isInitialRenderForAutoLayoutEffect.current = false;
       return;
     }
-    // ★ handleAutoLayoutRef.current を呼び出す ★
     handleAutoLayoutRef.current(true); 
-  // ★ 依存配列から handleAutoLayout を削除 ★
   }, [searchTerm, selectedFilterTags, searchDepth]); 
-
-  // useEffect(() => {
-  //   if (isInitialRenderForAutoLayoutEffect.current) {
-  //     isInitialRenderForAutoLayoutEffect.current = false;
-  //     return;
-  //   }
-  //   handleAutoLayout(true);
-  // }, [searchTerm, selectedFilterTags, searchDepth, handleAutoLayout]);
 
   const handleDepthChange = useCallback((depthArr: number[]) => {
     setSearchDepth(depthArr[0]);
-  }, []); // setSearchDepth は安定しているので、依存配列は空でOK
+  }, []);
 
   const handleApplyAutoLayout = useCallback(() => {
     handleAutoLayout(false);
-  }, [handleAutoLayout]); // handleAutoLayout に依存
+  }, [handleAutoLayout]);
 
-  // Delete key handling
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Delete' && isDeleteMode) {
@@ -948,25 +980,31 @@ export default function KnowledgeCanvasPage() {
 
   const handleConfirmDelete = async () => {
     try {
-      // Delete nodes from database
       for (const nodeId of selectedItemsForDeletion.nodes) {
+        // If it's a file node with a filePath, consider deleting the local file
+        const nodeToDelete = nodes.find(n => n.id === nodeId);
+        if (nodeToDelete && nodeToDelete.type === 'file' && nodeToDelete.filePath && window.electronAPI) {
+          // You might want to add a specific electronAPI for deleting local files
+          // For now, we'll just delete the DB record.
+          // To delete the file: await window.electronAPI.deleteLocalFile(nodeToDelete.filePath);
+          // This would require a new IPC handler in main.js:
+          // ipcMain.handle('file:deleteLocal', async (event, filePath) => { try { fs.unlinkSync(filePath); return true; } catch (e) { return false; } });
+          // And exposed in preload.js
+        }
         if (window.electronAPI) {
           await window.electronAPI.deleteNode(nodeId);
         }
       }
 
-      // Delete links from database
       for (const linkId of selectedItemsForDeletion.links) {
         if (window.electronAPI) {
           await window.electronAPI.deleteLink(linkId);
         }
       }
 
-      // Update UI state
       setNodes(prevNodes => prevNodes.filter(node => !selectedItemsForDeletion.nodes.includes(node.id)));
       setLinks(prevLinks => prevLinks.filter(link => !selectedItemsForDeletion.links.includes(link.id)));
       
-      // Clear selection and close dialog
       setSelectedItemsForDeletion({ nodes: [], links: [] });
       setIsDeleteConfirmOpen(false);
       
@@ -992,7 +1030,6 @@ export default function KnowledgeCanvasPage() {
         onCreateNote={handleCreateNote}
         onSearch={setSearchTerm}
         currentSearchTerm={searchTerm}
-        // onDepthChange={(depthArr) => setSearchDepth(depthArr[0])}
         onDepthChange={handleDepthChange}
         currentDepth={searchDepth}
         onToggleLinkMode={handleToggleLinkMode}
@@ -1002,7 +1039,6 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        // onAutoLayout={() => handleAutoLayout(false)}
         onAutoLayout={handleApplyAutoLayout}
       />
       <main className="flex-grow relative">
@@ -1031,7 +1067,6 @@ export default function KnowledgeCanvasPage() {
       </main>
       <Toaster />
 
-      {/* Create/Edit Node Dialog */}
       <AlertDialog open={isNoteDialogOpen || isEditDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) handleCreateEditDialogClose(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1039,12 +1074,12 @@ export default function KnowledgeCanvasPage() {
               {editingNodeId
                 ? currentEditingNodeDetails?.type === 'note'
                   ? `Edit Note: ${currentEditingNodeDetails?.title}`
-                  : `Edit File: ${currentEditingNodeDetails?.title}`
+                  : `Edit File Details: ${currentEditingNodeDetails?.title}`
                 : "Create New Note"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {editingNodeId
-                ? "Update the details below."
+                ? (currentEditingNodeDetails?.type === 'file' ? "Update the file description and tags." : "Update the details below.")
                 : "Enter a title, content (optional), and tags (optional) for your new note."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1098,10 +1133,11 @@ export default function KnowledgeCanvasPage() {
                 })()}
               </div>
             </div>
+            
             {(!editingNodeId || currentEditingNodeDetails?.type === 'note' || currentEditingNodeDetails?.type === 'file') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
-                  Content
+                  {currentEditingNodeDetails?.type === 'file' ? "Description" : "Content"}
                 </Label>
                 <Textarea
                   id="dialog-content"
@@ -1112,10 +1148,39 @@ export default function KnowledgeCanvasPage() {
                       : setCurrentNote(prev => ({ ...prev, content: e.target.value }))
                   }
                   className="col-span-3 min-h-[100px]"
-                  placeholder={currentEditingNodeDetails?.type === 'file' ? "Type file description here..." : "Type your note here..."}
+                  placeholder={currentEditingNodeDetails?.type === 'file' ? "Enter a description for this file..." : "Type your note here..."}
                 />
               </div>
             )}
+
+            {editingNodeId && currentEditingNodeDetails?.type === 'file' && currentEditingNodeDetails.filePath && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">File</Label>
+                <div className="col-span-3 text-sm text-muted-foreground break-all flex items-center">
+                  <FileIcon className="inline h-4 w-4 mr-2 flex-shrink-0" />
+                  <span className="truncate" title={currentEditingNodeDetails.filePath}>
+                    {currentEditingNodeDetails.filePath.substring(currentEditingNodeDetails.filePath.lastIndexOf(path.sep) + 1)}
+                  </span>
+                   <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-2 h-7 px-2 py-1"
+                        onClick={async () => { // Make async
+                            if (currentEditingNodeDetails?.filePath && window.electronAPI) {
+                                try {
+                                    await window.electronAPI.openLocalFile(currentEditingNodeDetails.filePath);
+                                } catch (err) {
+                                    toast({title: "Error", description: "Could not open file.", variant: "destructive"})
+                                }
+                            }
+                        }}
+                    >
+                        Open
+                    </Button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="dialog-tags-input" className="text-right pt-2">
                 Tags
@@ -1218,7 +1283,6 @@ export default function KnowledgeCanvasPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

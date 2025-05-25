@@ -1,11 +1,18 @@
 // electron/main.js
-const { app, BrowserWindow, dialog, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell } = require('electron'); // Add shell
 const path = require('path');
 const url = require('url');
+const fs = require('fs'); // Add fs
 const db = require('./database');
 
 // isDevの代わりにapp.isPackagedを使用
 const isDev = !app.isPackaged;
+
+// Directory for storing uploaded files
+const uploadsPath = path.join(app.getPath('userData'), 'user_uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
 
 let mainWindow;
 
@@ -18,21 +25,14 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'), // main.jsからの相対パス
-      webSecurity: false,
+      webSecurity: false, // Consider security implications if enabling this
     },
-    icon: path.join(__dirname, isDev ? '../public/favicon.ico' : '../dist/favicon.ico') // main.jsからの相対パス
-    // 注意: electron-builderでassetsフォルダをbuildResourcesに指定している場合、
-    // 本番環境のアイコンパスは process.resourcesPath を基準にすることが多いです。
-    // 例: icon: path.join(process.resourcesPath, 'assets/icon.ico') (ymlでbuildResources: assets とした場合)
-    // 今回はdistにfaviconが含まれる前提で ../dist/favicon.ico としています。
+    icon: path.join(__dirname, isDev ? '../public/favicon.ico' : '../dist/favicon.ico')
   });
 
   const startUrl = isDev
     ? 'http://localhost:9002'
     : url.format({
-        // ★★★ パス指定を __dirname (main.js の場所) からの相対パスに変更 ★★★
-        // app.asar 内で main.js は electron フォルダに配置される想定
-        // そこから一つ上の階層の dist フォルダ内の index.html を指す
         pathname: path.join(__dirname, '../dist/index.html'),
         protocol: 'file:',
         slashes: true,
@@ -52,7 +52,6 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // --- メニュー設定 ---
   const menuTemplate = [
     {
       label: 'File',
@@ -91,7 +90,6 @@ function createWindow() {
   Menu.setApplicationMenu(menu);
 }
 
-// --- IPCハンドラーのセットアップ ---
 function setupIpcHandlers() {
   ipcMain.handle('db:getAllNodes', async () => {
     return await db.getAllNodes();
@@ -106,10 +104,11 @@ function setupIpcHandlers() {
     return await db.addLink(link);
   });
   ipcMain.handle('db:updateNodePosition', async (event, { id, position }) => {
-    return await db.updateNodePosition(id, JSON.stringify(position));
+    // Ensure position is stringified if it's not already (it seems it is from page.tsx)
+    return await db.updateNodePosition(id, typeof position === 'string' ? position : JSON.stringify(position));
   });
   ipcMain.handle('db:updateNodeData', async (event, { id, data }) => {
-    return await db.updateNodeData(id, data);
+    return await db.updateNodeData(id, data); // data should be an object, database.js will stringify
   });
   ipcMain.handle('db:deleteNode', async (event, id) => {
       await db.deleteLinksByNodeId(id);
@@ -134,6 +133,42 @@ function setupIpcHandlers() {
       });
       return canceled ? null : filePath;
   });
+
+  // New IPC Handlers for local file operations
+  ipcMain.handle('file:saveLocal', async (event, fileName, fileDataBuffer) => {
+    try {
+      const filePath = path.join(uploadsPath, fileName);
+      // Ensure the directory exists (it should from app startup)
+      if (!fs.existsSync(uploadsPath)) {
+        fs.mkdirSync(uploadsPath, { recursive: true });
+      }
+      fs.writeFileSync(filePath, Buffer.from(fileDataBuffer));
+      return filePath;
+    } catch (error) {
+      console.error('Failed to save file locally:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('file:openLocal', async (event, filePath) => {
+    try {
+      // Check if file exists before attempting to open
+      if (!fs.existsSync(filePath)) {
+        dialog.showErrorBox('File Not Found', `The file at ${filePath} could not be found.`);
+        return false;
+      }
+      await shell.openPath(filePath);
+      return true;
+    } catch (error) {
+      console.error('Failed to open file locally:', error);
+      dialog.showErrorBox('Error Opening File', `Could not open the file: ${error.message}`);
+      return false;
+    }
+  });
+
+  ipcMain.handle('file:getUploadsDir', () => {
+    return uploadsPath;
+  });
 }
 
 
@@ -141,6 +176,7 @@ app.whenReady().then(async () => {
   try {
     await db.initDatabase();
     console.log('Database initialized successfully. Path:', db.dbPath);
+    console.log('Uploads directory:', uploadsPath); // Log uploads path
   } catch (error) {
     console.error('Failed to initialize database:', error);
     dialog.showErrorBox('Database Error', `Failed to initialize database: ${error.message}`);

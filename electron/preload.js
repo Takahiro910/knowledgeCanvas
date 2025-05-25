@@ -16,9 +16,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
   saveFileDialog: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
 
+  // New Local File Operations
+  saveLocalFile: (fileName, fileDataBuffer) => ipcRenderer.invoke('file:saveLocal', fileName, fileDataBuffer),
+  openLocalFile: (filePath) => ipcRenderer.invoke('file:openLocal', filePath),
+  getUploadsDir: () => ipcRenderer.invoke('file:getUploadsDir'), // Optional: if needed by renderer
+
   // 他に必要なAPIがあればここに追加
 });
-
-// contextBridge経由で公開しない場合、windowオブジェクトに直接追加することも可能ですが、
-// セキュリティ上の理由から contextBridge が推奨されます。
-// window.electronAPI = { ... };

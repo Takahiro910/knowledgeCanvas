@@ -1,3 +1,4 @@
+// src/types/index.ts
 
 export type NodeType = 'file' | 'note';
 export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'OTHER';
@@ -8,6 +9,7 @@ export interface NodeData {
   title: string; // For notes: title; For files: filename
   content?: string; // For notes: body of the note
   fileType?: FileType; // Relevant if type is 'file'
+  filePath?: string; // Path to the locally stored file
   tags?: string[]; // Tags associated with the node
   x: number; // Position on canvas
   y: number; // Position on canvas
@@ -28,4 +30,3 @@ export interface DeleteModeState {
     links: string[];
   };
 }
-
