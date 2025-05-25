@@ -732,33 +732,37 @@ export default function KnowledgeCanvasPage() {
 
 
   const filteredNodesAndLinks = useMemo(() => {
-    if (!searchTerm.trim() && selectedFilterTags.length === 0) {
+    const trimmedSearchTerm = searchTerm.trim();
+    if (!trimmedSearchTerm && selectedFilterTags.length === 0) {
       return { displayNodes: nodes, displayLinks: links };
     }
 
-    const lowerSearchTerm = searchTerm.toLowerCase();
+    const searchTerms = trimmedSearchTerm.toLowerCase().split(/\s+/).filter(term => term.length > 0);
 
     let matchedInitialNodes = nodes.filter(node => {
       const matchesSelectedTags = selectedFilterTags.length > 0
         ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
         : true;
 
-      const matchesSearchTerm = searchTerm.trim()
-        ? (
-            node.title.toLowerCase().includes(lowerSearchTerm) ||
-            (node.type === 'note' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
-            (node.type === 'file' && node.content?.toLowerCase().includes(lowerSearchTerm)) ||
-            (node.tags && node.tags.some(tag => tag.toLowerCase().includes(lowerSearchTerm)))
-          )
-        : true;
-
-      if (selectedFilterTags.length > 0 && searchTerm.trim()){
-        return matchesSelectedTags && matchesSearchTerm;
-      } else if (selectedFilterTags.length > 0){
-        return matchesSelectedTags;
-      } else if (searchTerm.trim()){
-        return matchesSearchTerm;
+      let matchesSearchTerms = true; // デフォルトはtrue（検索語がない場合）
+      if (searchTerms.length > 0) {
+        matchesSearchTerms = searchTerms.every(term => { // すべての検索語に一致するか
+          const titleMatch = node.title.toLowerCase().includes(term);
+          const contentMatch = (node.type === 'note' || node.type === 'file') && node.content?.toLowerCase().includes(term);
+          const tagMatch = node.tags && node.tags.some(tag => tag.toLowerCase().includes(term));
+          return titleMatch || contentMatch || tagMatch;
+        });
       }
+
+      // フィルタリング条件の組み合わせ
+      if (selectedFilterTags.length > 0 && searchTerms.length > 0) {
+        return matchesSelectedTags && matchesSearchTerms;
+      } else if (selectedFilterTags.length > 0) {
+        return matchesSelectedTags;
+      } else if (searchTerms.length > 0) {
+        return matchesSearchTerms;
+      }
+      // 検索語もフィルタータグも空の場合は、最初のif文で早期リターンする
       return false;
     });
 
