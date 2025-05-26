@@ -17,9 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileDialog: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
 
   // New Local File Operations
-  saveLocalFile: (fileName, fileDataBuffer) => ipcRenderer.invoke('file:saveLocal', fileName, fileDataBuffer),
+  // saveLocalFile: (fileName, fileDataBuffer) => ipcRenderer.invoke('file:saveLocal', fileName, fileDataBuffer),
   openLocalFile: (filePath) => ipcRenderer.invoke('file:openLocal', filePath),
-  getUploadsDir: () => ipcRenderer.invoke('file:getUploadsDir'), // Optional: if needed by renderer
+  // getUploadsDir: () => ipcRenderer.invoke('file:getUploadsDir'), // Optional: if needed by renderer
 
   // 他に必要なAPIがあればここに追加
 });

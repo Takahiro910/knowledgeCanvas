@@ -309,35 +309,40 @@ export default function KnowledgeCanvasPage() {
     for (const file of droppedFiles) {
       const nodeTypeForFile: NodeType = 'file';
       const appFileType = getFileType(file.name);
+      const originalFilePath = (file as any).path; // Electronによって追加される元のファイルパス
+
+      if (!originalFilePath) {
+        toast({ title: "Error", description: `Could not get path for "${file.name}".`, variant: "destructive" });
+        continue;
+      }
       
-      const isDuplicateTitle = nodes.some(
-        (node) => node.title.toLowerCase() === file.name.toLowerCase()
+      const isDuplicatePath = nodes.some(
+        (node) => node.filePath === originalFilePath
       );
 
-      if (isDuplicateTitle) {
+      if (isDuplicatePath) {
         toast({
-          title: "Duplicate File",
-          description: `A file named "${file.name}" already exists. Skipping upload.`,
+          title: "Duplicate File Path",
+          description: `A node for "${file.name}" with the same path already exists. Skipping.`,
           variant: "destructive",
         });
         continue;
       }
       
       try {
-        const fileBuffer = await file.arrayBuffer();
-        const savedFilePath = await window.electronAPI.saveLocalFile(file.name, fileBuffer);
+        // ファイルのローカル保存処理は削除
+        // const fileBuffer = await file.arrayBuffer();
+        // const savedFilePath = await window.electronAPI.saveLocalFile(file.name, fileBuffer); // 削除
 
-        if (savedFilePath) {
-          await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, savedFilePath, [], dropX, dropY);
-        } else {
-          toast({ title: "Error Saving File", description: `Could not save "${file.name}" locally.`, variant: "destructive" });
-        }
+        // originalFilePath を直接使用
+        await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, originalFilePath, [], dropX, dropY);
+        // internalAddNode は変更なしで、filePath に originalFilePath を渡す
       } catch (error) {
         console.error("Error processing dropped file:", error);
         toast({ title: "Error Processing File", description: `Failed to process "${file.name}".`, variant: "destructive" });
       }
     }
-  }, [internalAddNode, nodes, toast]);
+  }, [internalAddNode, nodes, toast]); // internalAddNode と nodes への依存を維持
 
 
   const handleCreateNote = useCallback(() => {
@@ -1165,7 +1170,7 @@ export default function KnowledgeCanvasPage() {
                   <span className="truncate" title={currentEditingNodeDetails.filePath}>
                     {currentEditingNodeDetails.filePath.substring(currentEditingNodeDetails.filePath.lastIndexOf(path.sep) + 1)}
                   </span>
-                   <Button
+                    <Button
                         variant="outline"
                         size="sm"
                         className="ml-2 h-7 px-2 py-1"

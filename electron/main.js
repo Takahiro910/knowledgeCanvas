@@ -9,10 +9,10 @@ const db = require('./database');
 const isDev = !app.isPackaged;
 
 // Directory for storing uploaded files
-const uploadsPath = path.join(app.getPath('userData'), 'user_uploads');
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-}
+// const uploadsPath = path.join(app.getPath('userData'), 'user_uploads');
+// if (!fs.existsSync(uploadsPath)) {
+//   fs.mkdirSync(uploadsPath, { recursive: true });
+// }
 
 let mainWindow;
 
@@ -135,20 +135,20 @@ function setupIpcHandlers() {
   });
 
   // New IPC Handlers for local file operations
-  ipcMain.handle('file:saveLocal', async (event, fileName, fileDataBuffer) => {
-    try {
-      const filePath = path.join(uploadsPath, fileName);
-      // Ensure the directory exists (it should from app startup)
-      if (!fs.existsSync(uploadsPath)) {
-        fs.mkdirSync(uploadsPath, { recursive: true });
-      }
-      fs.writeFileSync(filePath, Buffer.from(fileDataBuffer));
-      return filePath;
-    } catch (error) {
-      console.error('Failed to save file locally:', error);
-      throw error;
-    }
-  });
+  // ipcMain.handle('file:saveLocal', async (event, fileName, fileDataBuffer) => {
+  //   try {
+  //     const filePath = path.join(uploadsPath, fileName);
+  //     // Ensure the directory exists (it should from app startup)
+  //     if (!fs.existsSync(uploadsPath)) {
+  //       fs.mkdirSync(uploadsPath, { recursive: true });
+  //     }
+  //     fs.writeFileSync(filePath, Buffer.from(fileDataBuffer));
+  //     return filePath;
+  //   } catch (error) {
+  //     console.error('Failed to save file locally:', error);
+  //     throw error;
+  //   }
+  // });
 
   ipcMain.handle('file:openLocal', async (event, filePath) => {
     try {
@@ -166,9 +166,9 @@ function setupIpcHandlers() {
     }
   });
 
-  ipcMain.handle('file:getUploadsDir', () => {
-    return uploadsPath;
-  });
+  // ipcMain.handle('file:getUploadsDir', () => {
+  //   return uploadsPath;
+  // });
 }
 
 
@@ -176,7 +176,7 @@ app.whenReady().then(async () => {
   try {
     await db.initDatabase();
     console.log('Database initialized successfully. Path:', db.dbPath);
-    console.log('Uploads directory:', uploadsPath); // Log uploads path
+    // console.log('Uploads directory:', uploadsPath); // Log uploads path
   } catch (error) {
     console.error('Failed to initialize database:', error);
     dialog.showErrorBox('Database Error', `Failed to initialize database: ${error.message}`);
