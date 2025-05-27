@@ -1,20 +1,20 @@
 // src/types/index.ts
-
-export type NodeType = 'file' | 'note';
-export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'OTHER';
+export type NodeType = 'file' | 'note' | 'link'; // Add 'link'
+export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'URL' | 'OTHER'; // Add 'URL'
 
 export interface NodeData {
   id: string;
   type: NodeType;
-  title: string; // For notes: title; For files: filename
-  content?: string; // For notes: body of the note
-  fileType?: FileType; // Relevant if type is 'file'
-  filePath?: string; // Path to the locally stored file
-  tags?: string[]; // Tags associated with the node
-  x: number; // Position on canvas
-  y: number; // Position on canvas
-  width?: number; // Optional: for differing node sizes
-  height?: number; // Optional
+  title: string;
+  content?: string;
+  fileType?: FileType; // For 'file' and 'link' types
+  filePath?: string; // Path to the locally stored file (for 'file' type)
+  url?: string;      // URL for 'link' type
+  tags?: string[];
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
 }
 
 export interface LinkData {

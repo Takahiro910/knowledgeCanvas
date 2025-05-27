@@ -22,4 +22,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // getUploadsDir: () => ipcRenderer.invoke('file:getUploadsDir'), // Optional: if needed by renderer
 
   // 他に必要なAPIがあればここに追加
+  // New utility to open external URLs
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 });

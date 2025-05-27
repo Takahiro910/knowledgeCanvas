@@ -19,7 +19,7 @@ interface KnowledgeCanvasProps {
   onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasMouseDownForPan: (event: React.MouseEvent<HTMLDivElement>) => void;
   onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
-  onFilesDrop: (files: File[], dropX?: number, dropY?: number) => void;
+  onFilesDrop: (items: DataTransferItemList | File[], dropX?: number, dropY?: number) => void; // Modified to accept DataTransferItemList
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
   onNodeContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
@@ -64,7 +64,7 @@ export function KnowledgeCanvas({
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDraggingOver(false);
-    if (event.dataTransfer.files && event.dataTransfer.files.length > 0 && canvasRef.current) {
+    if (canvasRef.current) { // Ensure canvasRef.current is not null
       const canvasBounds = canvasRef.current.getBoundingClientRect();
       const viewX = event.clientX - canvasBounds.left;
       const viewY = event.clientY - canvasBounds.top;
@@ -72,7 +72,11 @@ export function KnowledgeCanvas({
       const worldX = (viewX - canvasOffset.x) / zoomLevel;
       const worldY = (viewY - canvasOffset.y) / zoomLevel;
 
-      onFilesDrop(Array.from(event.dataTransfer.files), worldX, worldY);
+      if (event.dataTransfer.items && event.dataTransfer.items.length > 0) {
+        onFilesDrop(event.dataTransfer.items, worldX, worldY);
+      } else if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+        onFilesDrop(Array.from(event.dataTransfer.files), worldX, worldY);
+      }
     }
   };
 

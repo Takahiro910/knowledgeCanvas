@@ -2,11 +2,11 @@
 "use client";
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas';
-import { Toolbar } from '@/components/knowledge-canvas/Toolbar';
-import type { NodeData, LinkData, FileType as AppFileType, NodeType, DeleteModeState } from '@/types';
-import { Toaster } from '@/components/ui/toaster';
-import { useToast } from '@/hooks/use-toast';
+import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas'; //
+import { Toolbar } from '@/components/knowledge-canvas/Toolbar'; //
+import type { NodeData, LinkData, FileType as AppFileType, NodeType, DeleteModeState } from '@/types'; //
+import { Toaster } from '@/components/ui/toaster'; //
+import { useToast } from '@/hooks/use-toast'; //
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,23 +16,24 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from '@/components/ui/badge';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { XIcon, PlusCircleIcon, CheckIcon, FileIcon, Search } from 'lucide-react'; // Searchを追加 (Toolbar内で使用されているため)
-import { cn } from '@/lib/utils';
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
+} from "@/components/ui/alert-dialog"; //
+import { Button } from "@/components/ui/button"; //
+import { Input } from "@/components/ui/input"; //
+import { Textarea } from "@/components/ui/textarea"; //
+import { Label } from "@/components/ui/label"; //
+import { Badge } from '@/components/ui/badge'; //
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'; //
+import { XIcon, PlusCircleIcon, CheckIcon, FileIcon, Search, Link as LinkIconLucide } from 'lucide-react'; //
+import { cn } from '@/lib/utils'; //
+import { v4 as uuidv4 } from 'uuid'; //
+import path from 'path'; //
 
 interface NodeMetaData {
   title?: string;
   content?: string;
   fileType?: AppFileType;
   filePath?: string;
+  url?: string; // Added
   tags?: string[];
   width?: number;
   height?: number;
@@ -54,17 +55,18 @@ declare global {
       saveLocalFile: (fileName: string, fileDataBuffer: ArrayBuffer) => Promise<string | null>;
       openLocalFile: (filePath: string) => Promise<boolean>;
       getUploadsDir: () => Promise<string>;
+      openExternal: (url: string) => Promise<boolean>; // Added
     };
   }
 }
 
-const getFileType = (fileName: string): AppFileType => {
+const getFileTypeFromFileName = (fileName: string): AppFileType => { // Renamed
   const extension = fileName.split('.').pop()?.toLowerCase();
-  if (extension === 'pdf') return 'PDF';
-  if (extension === 'docx' || extension === 'doc') return 'DOCX';
-  if (extension === 'txt') return 'TXT';
-  if (['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(extension || '')) return 'IMAGE';
-  return 'OTHER';
+  if (extension === 'pdf') return 'PDF'; //
+  if (extension === 'docx' || extension === 'doc') return 'DOCX'; //
+  if (extension === 'txt') return 'TXT'; //
+  if (['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(extension || '')) return 'IMAGE'; //
+  return 'OTHER'; //
 };
 
 const traverseGraph = (
@@ -106,62 +108,62 @@ const traverseGraph = (
 
 
 export default function KnowledgeCanvasPage() {
-  const [nodes, setNodes] = useState<NodeData[]>([]);
-  const [links, setLinks] = useState<LinkData[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchDepth, setSearchDepth] = useState<number>(1);
-  const [isLinkingMode, setIsLinkingMode] = useState(false);
-  const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]);
-  const [isDeleteMode, setIsDeleteMode] = useState(false);
-  const [selectedItemsForDeletion, setSelectedItemsForDeletion] = useState<{ nodes: string[]; links: string[]; }>({ nodes: [], links: [] });
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [nodes, setNodes] = useState<NodeData[]>([]); //
+  const [links, setLinks] = useState<LinkData[]>([]); //
+  const [searchTerm, setSearchTerm] = useState(''); //
+  const [searchDepth, setSearchDepth] = useState<number>(1); //
+  const [isLinkingMode, setIsLinkingMode] = useState(false); //
+  const [selectedNodesForLinking, setSelectedNodesForLinking] = useState<string[]>([]); //
+  const [isDeleteMode, setIsDeleteMode] = useState(false); //
+  const [selectedItemsForDeletion, setSelectedItemsForDeletion] = useState<{ nodes: string[]; links: string[]; }>({ nodes: [], links: [] }); //
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false); //
 
-  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
-  const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
-  const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null);
+  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false); //
+  const [currentNote, setCurrentNote] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] }); //
+  const [currentNoteCreationCoords, setCurrentNoteCreationCoords] = useState<{x: number, y: number} | null>(null); //
 
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
-  const [tagInputValue, setTagInputValue] = useState('');
-  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
-  const [tagSearchValue, setTagSearchValue] = useState('');
-  const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false); //
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null); //
+  const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] }); //
+  const [tagInputValue, setTagInputValue] = useState(''); //
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false); //
+  const [tagSearchValue, setTagSearchValue] = useState(''); //
+  const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false); //
 
 
-  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panStartCoordsRef = useRef<{ x: number, y: number } | null>(null);
-  const didPanRef = useRef(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 }); //
+  const [isPanning, setIsPanning] = useState(false); //
+  const panStartCoordsRef = useRef<{ x: number, y: number } | null>(null); //
+  const didPanRef = useRef(false); //
+  const [zoomLevel, setZoomLevel] = useState(1); //
 
-  const [allTags, setAllTags] = useState<string[]>([]);
-  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]); //
+  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]); //
 
-  const { toast } = useToast();
-  const shortcutFileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast(); //
+  const shortcutFileInputRef = useRef<HTMLInputElement>(null); //
 
 
   useEffect(() => {
     if (!isTagSelectorOpen) {
       setTagSearchValue('');
     }
-  }, [isTagSelectorOpen]);
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const isFirstRenderForLinkModeToast = useRef(true);
-  const previousLinksLengthRef = useRef(links.length);
-  const isInitialRenderForAutoLayoutEffect = useRef(true);
+  }, [isTagSelectorOpen]); //
+  const canvasRef = useRef<HTMLDivElement>(null); //
+  const isFirstRenderForLinkModeToast = useRef(true); //
+  const previousLinksLengthRef = useRef(links.length); //
+  const isInitialRenderForAutoLayoutEffect = useRef(true); //
 
   useEffect(() => {
     const loadData = async () => {
       try {
         if (window.electronAPI) {
-          const loadedNodesFromDB = await window.electronAPI.getAllNodes();
-          const loadedLinksFromDB = await window.electronAPI.getAllLinks();
+          const loadedNodesFromDB = await window.electronAPI.getAllNodes(); //
+          const loadedLinksFromDB = await window.electronAPI.getAllLinks(); //
 
           const parsedNodes: NodeData[] = loadedNodesFromDB.map(dbNode => {
-            const position = JSON.parse(dbNode.position) as { x: number; y: number };
-            const metaData = JSON.parse(dbNode.data) as NodeMetaData;
+            const position = JSON.parse(dbNode.position) as { x: number; y: number }; //
+            const metaData = JSON.parse(dbNode.data) as NodeMetaData; //
             return {
               id: dbNode.id,
               type: dbNode.type,
@@ -169,6 +171,7 @@ export default function KnowledgeCanvasPage() {
               content: metaData.content,
               fileType: metaData.fileType,
               filePath: metaData.filePath,
+              url: metaData.url, // Load URL
               tags: metaData.tags || [],
               x: position.x,
               y: position.y,
@@ -176,21 +179,21 @@ export default function KnowledgeCanvasPage() {
               height: metaData.height,
             };
           });
-          setNodes(parsedNodes);
+          setNodes(parsedNodes); //
 
           const parsedLinks: LinkData[] = loadedLinksFromDB.map(dbLink => ({
             id: dbLink.id,
             sourceNodeId: dbLink.source,
             targetNodeId: dbLink.target,
           }));
-          setLinks(parsedLinks);
+          setLinks(parsedLinks); //
 
         } else {
           console.warn('Electron API not found. Running in browser mode?');
         }
       } catch (error) {
         console.error('Failed to load data from database:', error);
-        toast({ title: "Error Loading Data", description: "Could not load data from the local database.", variant: "destructive" });
+        toast({ title: "Error Loading Data", description: "Could not load data from the local database.", variant: "destructive" }); //
       }
     };
     loadData();
@@ -198,13 +201,13 @@ export default function KnowledgeCanvasPage() {
 
 
   useEffect(() => {
-    const uniqueTags = new Set<string>();
+    const uniqueTags = new Set<string>(); //
     nodes.forEach(node => {
       if (node.tags) {
         node.tags.forEach(tag => uniqueTags.add(tag));
       }
     });
-    setAllTags(Array.from(uniqueTags).sort());
+    setAllTags(Array.from(uniqueTags).sort()); //
   }, [nodes]);
 
   const handleFilterTagToggle = (tagToToggle: string) => {
@@ -221,180 +224,251 @@ export default function KnowledgeCanvasPage() {
     content?: string,
     fileType?: AppFileType,
     filePath?: string,
+    url?: string, // Added
     tags?: string[],
     posX?: number,
     posY?: number,
     width?: number,
     height?: number
   ) => {
-    const canvasBounds = canvasRef.current?.getBoundingClientRect();
+    const canvasBounds = canvasRef.current?.getBoundingClientRect(); //
     let worldX: number, worldY: number;
 
     if (posX !== undefined && posY !== undefined) {
       worldX = posX;
       worldY = posY;
     } else {
-      const randomViewX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500;
-      const randomViewY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300;
-      worldX = (randomViewX - canvasOffset.x) / zoomLevel;
-      worldY = (randomViewY - canvasOffset.y) / zoomLevel;
+      const randomViewX = canvasBounds ? Math.random() * (canvasBounds.width - 256) : Math.random() * 500; //
+      const randomViewY = canvasBounds ? Math.random() * (canvasBounds.height - 150) : Math.random() * 300; //
+      worldX = (randomViewX - canvasOffset.x) / zoomLevel; //
+      worldY = (randomViewY - canvasOffset.y) / zoomLevel; //
     }
 
     const newNodeForUI: NodeData = {
-      id: uuidv4(),
+      id: uuidv4(), //
       type,
       title,
       content,
       fileType,
-      filePath,
+      filePath, // Will be undefined for link nodes
+      url,      // Will have value for link nodes
       tags: tags || [],
-      x: Math.max(0, worldX),
-      y: Math.max(0, worldY),
-      width: width || 256,
-      height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : 160),
+      x: Math.max(0, worldX), //
+      y: Math.max(0, worldY), //
+      width: width || 256, //
+      height: height || (type === 'note' ? (content && content.length > 50 ? 200 : 160) : (type === 'link' ? 120 : 160)),
+    };
+
+    const nodeDataForDB: NodeMetaData = { //
+        title: newNodeForUI.title,
+        content: newNodeForUI.content,
+        fileType: newNodeForUI.fileType,
+        filePath: newNodeForUI.filePath,
+        url: newNodeForUI.url, // Save URL
+        tags: newNodeForUI.tags,
+        width: newNodeForUI.width,
+        height: newNodeForUI.height,
     };
 
     const nodeForDB = {
         id: newNodeForUI.id,
         type: newNodeForUI.type,
         position: JSON.stringify({ x: newNodeForUI.x, y: newNodeForUI.y }),
-        data: JSON.stringify({
-            title: newNodeForUI.title,
-            content: newNodeForUI.content,
-            fileType: newNodeForUI.fileType,
-            filePath: newNodeForUI.filePath,
-            tags: newNodeForUI.tags,
-            width: newNodeForUI.width,
-            height: newNodeForUI.height,
-        } as NodeMetaData),
+        data: JSON.stringify(nodeDataForDB), //
     };
 
     try {
         if (window.electronAPI) {
-            await window.electronAPI.addNode(nodeForDB);
+            await window.electronAPI.addNode(nodeForDB); //
         }
-        setNodes((prevNodes) => [...prevNodes, newNodeForUI]);
-        toast({ title: `${type === 'note' ? "Note" : "File"} Created`, description: `"${title}" added.` });
+        setNodes((prevNodes) => [...prevNodes, newNodeForUI]); //
+        toast({ title: `${type.charAt(0).toUpperCase() + type.slice(1)} Node Created`, description: `"${title}" added.` });
     } catch (error) {
         console.error('Failed to add node:', error);
-        toast({ title: "Error", description: `Failed to add ${type}.`, variant: "destructive" });
+        toast({ title: "Error", description: `Failed to add ${type} node.`, variant: "destructive" }); //
     }
     return newNodeForUI;
   }, [canvasOffset.x, canvasOffset.y, zoomLevel, toast]);
 
-  const handleFilesDrop = useCallback(async (droppedFiles: File[], dropX?: number, dropY?: number) => {
-    if (!window.electronAPI) {
-        toast({ title: "Error", description: "File operations are not available.", variant: "destructive" });
-        return;
+  const handleUrlDrop = useCallback(async (url: string, dropX?: number, dropY?: number) => {
+    if (!url || !url.trim().startsWith('http')) {
+      toast({ title: "Invalid URL", description: "The dropped item is not a valid URL.", variant: "destructive" });
+      return;
     }
 
-    for (const file of droppedFiles) {
-      const nodeTypeForFile: NodeType = 'file';
-      const appFileType = getFileType(file.name);
-      const originalFilePath = (file as any).path;
+    const isDuplicateUrl = nodes.some(node => node.type === 'link' && node.url === url);
+    if (isDuplicateUrl) {
+      toast({
+        title: "Duplicate URL",
+        description: "A link node for this URL already exists.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      if (!originalFilePath) {
-        toast({ title: "Error", description: `Could not get path for "${file.name}".`, variant: "destructive" });
-        continue;
-      }
-      
-      const isDuplicatePath = nodes.some(
-        (node) => node.filePath === originalFilePath
-      );
+    let nodeTitle = url;
+    try {
+      const parsedUrl = new URL(url);
+      nodeTitle = parsedUrl.hostname + (parsedUrl.pathname === '/' ? '' : parsedUrl.pathname);
+    } catch (e) {
+      console.warn("Could not parse URL for title generation:", e);
+    }
+    nodeTitle = nodeTitle.length > 50 ? nodeTitle.substring(0, 47) + "..." : nodeTitle;
 
-      if (isDuplicatePath) {
-        toast({
-          title: "Duplicate File Path",
-          description: `A node for "${file.name}" with the same path already exists. Skipping.`,
-          variant: "destructive",
-        });
-        continue;
-      }
-      
-      try {
-        await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, originalFilePath, [], dropX, dropY);
-      } catch (error) {
-        console.error("Error processing dropped file:", error);
-        toast({ title: "Error Processing File", description: `Failed to process "${file.name}".`, variant: "destructive" });
-      }
+
+    try {
+      await internalAddNode('link', nodeTitle, undefined, 'URL', undefined, url, [], dropX, dropY, 256, 120);
+    } catch (error) {
+      console.error("Error processing dropped URL:", error);
+      toast({ title: "Error Processing URL", description: `Failed to create link node for "${url}".`, variant: "destructive" });
     }
   }, [internalAddNode, nodes, toast]);
 
+  const handleFilesDrop = useCallback(async (droppedItems: DataTransferItemList | File[], dropX?: number, dropY?: number) => {
+    if (!window.electronAPI) {
+        toast({ title: "Error", description: "File/URL operations are not available.", variant: "destructive" }); //
+        return;
+    }
+
+    const files: File[] = [];
+    let potentialUrl: string | null = null;
+
+    if (droppedItems instanceof FileList || Array.isArray(droppedItems)) {
+        for (const item of Array.from(droppedItems as File[])) {
+            files.push(item);
+        }
+    } else if (droppedItems instanceof DataTransferItemList) { //
+        for (let i = 0; i < droppedItems.length; i++) {
+            const item = droppedItems[i];
+            if (item.kind === 'file') {
+                const file = item.getAsFile();
+                if (file) files.push(file);
+            } else if (item.kind === 'string' && (item.type === 'text/uri-list' || item.type === 'text/plain')) {
+                potentialUrl = await new Promise<string | null>((resolve) => item.getAsString(resolve));
+                if (potentialUrl && potentialUrl.startsWith('http')) {
+                    break; 
+                } else {
+                    potentialUrl = null; 
+                }
+            }
+        }
+    }
+
+
+    if (potentialUrl) { 
+        await handleUrlDrop(potentialUrl, dropX, dropY);
+    } else if (files.length > 0) { 
+        for (const file of files) {
+          const nodeTypeForFile: NodeType = 'file'; //
+          const appFileType = getFileTypeFromFileName(file.name);
+          const originalFilePath = (file as any).path; //
+
+          if (!originalFilePath) {
+            toast({ title: "Error", description: `Could not get path for "${file.name}".`, variant: "destructive" }); //
+            continue;
+          }
+          
+          const isDuplicatePath = nodes.some(
+            (node) => node.filePath === originalFilePath
+          ); //
+
+          if (isDuplicatePath) {
+            toast({
+              title: "Duplicate File Path",
+              description: `A node for "${file.name}" with the same path already exists. Skipping.`,
+              variant: "destructive",
+            }); //
+            continue;
+          }
+          
+          try {
+            await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, originalFilePath, undefined, [], dropX, dropY); //
+          } catch (error) {
+            console.error("Error processing dropped file:", error);
+            toast({ title: "Error Processing File", description: `Failed to process "${file.name}".`, variant: "destructive" }); //
+          }
+        }
+    } else {
+        toast({ title: "No items to process", description: "No files or valid URLs found in the dropped items.", variant: "default" });
+    }
+  }, [internalAddNode, nodes, toast, handleUrlDrop]);
+
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
+    const files = event.target.files; //
     if (files) {
-      await handleFilesDrop(Array.from(files));
+      await handleFilesDrop(Array.from(files)); //
     }
     if (event.target) {
-      event.target.value = "";
+      event.target.value = ""; //
     }
   }, [handleFilesDrop]);
 
 
   const handleCreateNote = useCallback(() => {
-    setCurrentNote({ title: '', content: '', tags: [] });
-    setTagInputValue('');
-    setIsNoteDialogOpen(true);
-    setIsEditDialogOpen(false);
-    setEditingNodeId(null);
+    setCurrentNote({ title: '', content: '', tags: [] }); //
+    setTagInputValue(''); //
+    setIsNoteDialogOpen(true); //
+    setIsEditDialogOpen(false); //
+    setEditingNodeId(null); //
   }, []);
 
   const handleSaveNote = async () => {
     if (!currentNote.title.trim()) {
-      toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" });
+      toast({ title: "Error", description: "Note title cannot be empty.", variant: "destructive" }); //
       return;
     }
     const isDuplicateTitle = nodes.some(
       (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentNote.title.trim().toLowerCase()
-    );
+    ); //
 
     if (isDuplicateTitle) {
       toast({
         title: "Duplicate Title",
         description: "A node with this title already exists. Please use a different title.",
         variant: "destructive",
-      });
+      }); //
       return;
     }
-    await internalAddNode('note', currentNote.title, currentNote.content, undefined, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
-    setIsNoteDialogOpen(false);
-    setCurrentNoteCreationCoords(null);
+    await internalAddNode('note', currentNote.title, currentNote.content, undefined, undefined, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y); //
+    setIsNoteDialogOpen(false); //
+    setCurrentNoteCreationCoords(null); //
   };
 
   const handleNodeDoubleClick = useCallback((nodeId: string) => {
-    const nodeToEdit = nodes.find(n => n.id === nodeId);
+    const nodeToEdit = nodes.find(n => n.id === nodeId); //
     if (nodeToEdit) {
-      setEditingNodeId(nodeId);
-      setCurrentEditData({
+      setEditingNodeId(nodeId); //
+      setCurrentEditData({ //
         title: nodeToEdit.title,
-        content: nodeToEdit.content || '',
+        content: nodeToEdit.type === 'link' ? nodeToEdit.url || '' : nodeToEdit.content || '', // Use URL for link type
         tags: nodeToEdit.tags || []
       });
-      setTagInputValue('');
-      setIsEditDialogOpen(true);
-      setIsNoteDialogOpen(false);
+      setTagInputValue(''); //
+      setIsEditDialogOpen(true); //
+      setIsNoteDialogOpen(false); //
     }
   }, [nodes]);
 
 
   const handleUpdateNodeContent = useCallback(async (nodeId: string, newContent: string) => {
-      const nodeToUpdate = nodes.find(n => n.id === nodeId);
+      const nodeToUpdate = nodes.find(n => n.id === nodeId); //
       if (!nodeToUpdate) {
-          toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
+          toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" }); //
           return;
       }
       if (nodeToUpdate.type !== 'note') {
-          toast({ title: "Info", description: "Only note content can be edited directly here. Edit file descriptions via double-click.", variant: "default" });
+          toast({ title: "Info", description: "Only note content can be edited directly here. Edit file descriptions or link URLs via double-click.", variant: "default" });
           return;
       }
 
-      const newHeight = newContent && newContent.length > 50 ? 200 : 160;
+      const newHeight = newContent && newContent.length > 50 ? 200 : 160; //
 
-      const dataToUpdateInDB: Partial<NodeMetaData> = {
+      const dataToUpdateInDB: Partial<NodeMetaData> = { //
           title: nodeToUpdate.title,
           content: newContent,
           fileType: nodeToUpdate.fileType,
           filePath: nodeToUpdate.filePath,
+          url: nodeToUpdate.url,
           tags: nodeToUpdate.tags,
           width: nodeToUpdate.width,
           height: newHeight,
@@ -402,176 +476,196 @@ export default function KnowledgeCanvasPage() {
 
       try {
           if (window.electronAPI) {
-              await window.electronAPI.updateNodeData(nodeId, dataToUpdateInDB);
+              await window.electronAPI.updateNodeData(nodeId, dataToUpdateInDB); //
           }
           setNodes(prevNodes =>
               prevNodes.map(n =>
                   n.id === nodeId ? { ...n, content: newContent, height: newHeight } : n
               )
-          );
-          toast({ title: "Note Updated", description: `Content of "${nodeToUpdate.title}" updated.` });
+          ); //
+          toast({ title: "Note Updated", description: `Content of "${nodeToUpdate.title}" updated.` }); //
       } catch (error) {
           console.error('Failed to update node content:', error);
-          toast({ title: "Error", description: "Failed to update node content.", variant: "destructive" });
+          toast({ title: "Error", description: "Failed to update node content.", variant: "destructive" }); //
       }
   }, [nodes, toast]);
 
 
   const handleSaveEditedNode = async () => {
     if (!editingNodeId || !currentEditData.title.trim()) {
-      toast({ title: "Error", description: "Title cannot be empty.", variant: "destructive" });
+      toast({ title: "Error", description: "Title cannot be empty.", variant: "destructive" }); //
       return;
     }
-    const nodeBeingEdited = nodes.find(n => n.id === editingNodeId);
+    const nodeBeingEdited = nodes.find(n => n.id === editingNodeId); //
     if (!nodeBeingEdited) {
-        toast({ title: "Error", description: "Node not found for editing.", variant: "destructive" });
-        setIsEditDialogOpen(false);
-        setEditingNodeId(null);
+        toast({ title: "Error", description: "Node not found for editing.", variant: "destructive" }); //
+        setIsEditDialogOpen(false); //
+        setEditingNodeId(null); //
         return;
     }
 
+    const isDuplicateTitle = nodes.some(
+      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
+    ); //
+
+    if (isDuplicateTitle) {
+      toast({
+        title: "Duplicate Title",
+        description: "Another node with this title already exists. Please use a different title.",
+        variant: "destructive",
+      }); //
+      return;
+    }
+    
+    let newUrlForLinkNode = nodeBeingEdited.url;
+    if (nodeBeingEdited.type === 'link') {
+        const potentialNewUrl = currentEditData.content.trim();
+        if (potentialNewUrl && potentialNewUrl !== nodeBeingEdited.url && potentialNewUrl.startsWith('http')) {
+            const isDuplicateUrl = nodes.some(node => node.id !== editingNodeId && node.type === 'link' && node.url === potentialNewUrl);
+            if (isDuplicateUrl) {
+                toast({ title: "Duplicate URL", description: "Another link node with this URL already exists.", variant: "destructive" });
+                return;
+            }
+            newUrlForLinkNode = potentialNewUrl;
+        } else if (potentialNewUrl && !potentialNewUrl.startsWith('http')) {
+            toast({ title: "Invalid URL", description: "The URL must start with http or https.", variant: "destructive" });
+            return;
+        }
+    }
+
+
     const newHeight = nodeBeingEdited.type === 'note'
-        ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160)
+        ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160) //
         : nodeBeingEdited.height;
 
-    const dataToUpdateInDB: Partial<NodeMetaData> = {
+    const dataToUpdateInDB: Partial<NodeMetaData> = { //
         title: currentEditData.title,
-        content: currentEditData.content,
+        content: nodeBeingEdited.type === 'link' ? undefined : currentEditData.content, // No content for link nodes in DB data field
         fileType: nodeBeingEdited.fileType,
         filePath: nodeBeingEdited.filePath,
+        url: newUrlForLinkNode, // Update URL for link nodes
         tags: currentEditData.tags,
         width: nodeBeingEdited.width,
         height: newHeight,
     };
 
-    const isDuplicateWithOtherNode = nodes.some(
-      (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
-    );
-
-    if (isDuplicateWithOtherNode) {
-      toast({
-        title: "Duplicate Title",
-        description: "Another node with this title already exists. Please use a different title.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     try {
         if (window.electronAPI) {
-            await window.electronAPI.updateNodeData(editingNodeId, dataToUpdateInDB);
+            await window.electronAPI.updateNodeData(editingNodeId, dataToUpdateInDB); //
         }
         setNodes(prevNodes =>
           prevNodes.map(n =>
             n.id === editingNodeId
               ? {
                   ...n, 
-                  title: currentEditData.title,
-                  content: currentEditData.content,
-                  tags: currentEditData.tags,
+                  title: dataToUpdateInDB.title!,
+                  content: dataToUpdateInDB.content, // for notes/files
+                  url: dataToUpdateInDB.url,       // for links
+                  tags: dataToUpdateInDB.tags!,
                   height: newHeight,
                 }
               : n
           )
-        );
-        toast({ title: "Node Updated", description: `"${currentEditData.title}" updated successfully.` });
+        ); //
+        toast({ title: "Node Updated", description: `"${currentEditData.title}" updated successfully.` }); //
     } catch (error) {
         console.error('Failed to save edited node:', error);
-        toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
+        toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" }); //
     }
-    setIsEditDialogOpen(false);
-    setEditingNodeId(null);
+    setIsEditDialogOpen(false); //
+    setEditingNodeId(null); //
   };
 
   const handleToggleLinkMode = useCallback(() => {
-    setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
-    setSelectedNodesForLinking([]);
-    if (isPanning) setIsPanning(false);
+    setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode); //
+    setSelectedNodesForLinking([]); //
+    if (isPanning) setIsPanning(false); //
     if (isDeleteMode) {
-      setIsDeleteMode(false);
-      setSelectedItemsForDeletion({ nodes: [], links: [] });
+      setIsDeleteMode(false); //
+      setSelectedItemsForDeletion({ nodes: [], links: [] }); //
     }
   }, [isPanning, isDeleteMode]);
 
   const handleToggleDeleteMode = useCallback(() => {
-    setIsDeleteMode(prevIsDeleteMode => !prevIsDeleteMode);
-    setSelectedItemsForDeletion({ nodes: [], links: [] });
-    if (isPanning) setIsPanning(false);
+    setIsDeleteMode(prevIsDeleteMode => !prevIsDeleteMode); //
+    setSelectedItemsForDeletion({ nodes: [], links: [] }); //
+    if (isPanning) setIsPanning(false); //
     if (isLinkingMode) {
-      setIsLinkingMode(false);
-      setSelectedNodesForLinking([]);
+      setIsLinkingMode(false); //
+      setSelectedNodesForLinking([]); //
     }
   }, [isPanning, isLinkingMode]);
 
 
   useEffect(() => {
     if (isFirstRenderForLinkModeToast.current) {
-      isFirstRenderForLinkModeToast.current = false;
+      isFirstRenderForLinkModeToast.current = false; //
       return;
     }
 
     if (isLinkingMode) {
-      toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." });
+      toast({ title: "Linking Mode Activated", description: "Select two nodes to link them." }); //
     } else {
-      toast({ title: "Linking Mode Deactivated" });
+      toast({ title: "Linking Mode Deactivated" }); //
     }
   }, [isLinkingMode, toast]);
 
   useEffect(() => {
     if (links.length > previousLinksLengthRef.current) {
-      toast({ title: "Nodes Linked", description: "Link created successfully." });
+      toast({ title: "Nodes Linked", description: "Link created successfully." }); //
     }
-    previousLinksLengthRef.current = links.length;
+    previousLinksLengthRef.current = links.length; //
   }, [links, toast]);
 
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
     if (didPanRef.current || (event.target as HTMLElement).closest('[data-dragging="true"]')) {
-      didPanRef.current = false;
+      didPanRef.current = false; //
       return;
     }
-    if ((event.target as HTMLElement).closest('[data-open-file-button="true"]')) {
-        event.stopPropagation();
+    if ((event.target as HTMLElement).closest('[data-open-file-button="true"]')) { //
+        event.stopPropagation(); //
         return;
     }
-    event.stopPropagation();
+    event.stopPropagation(); //
 
     if (isDeleteMode) {
       setSelectedItemsForDeletion((prev) => {
-        const isCurrentlySelected = prev.nodes.includes(nodeId);
+        const isCurrentlySelected = prev.nodes.includes(nodeId); //
         return {
           ...prev,
           nodes: isCurrentlySelected
-            ? prev.nodes.filter((id) => id !== nodeId)
-            : [...prev.nodes, nodeId],
+            ? prev.nodes.filter((id) => id !== nodeId) //
+            : [...prev.nodes, nodeId], //
         };
       });
     } else if (isLinkingMode) {
       setSelectedNodesForLinking((prevSelected) => {
         if (prevSelected.includes(nodeId)) {
-          return prevSelected.filter((id) => id !== nodeId);
+          return prevSelected.filter((id) => id !== nodeId); //
         }
-        const newSelected = [...prevSelected, nodeId];
+        const newSelected = [...prevSelected, nodeId]; //
         if (newSelected.length === 2) {
-          const newLinkForDB = {
-            id: uuidv4(),
+          const newLinkForDB = { //
+            id: uuidv4(), //
             source: newSelected[0],
             target: newSelected[1],
           };
-          const newLinkForUI: LinkData = {
+          const newLinkForUI: LinkData = { //
             id: newLinkForDB.id,
             sourceNodeId: newSelected[0],
             targetNodeId: newSelected[1],
           };
 
           if (window.electronAPI) {
-            window.electronAPI.addLink(newLinkForDB).catch(err => {
+            window.electronAPI.addLink(newLinkForDB).catch(err => { //
                 console.error("Failed to add link to DB:", err);
-                toast({title: "Error", description: "Failed to save link.", variant: "destructive"});
+                toast({title: "Error", description: "Failed to save link.", variant: "destructive"}); //
             });
           }
-          setLinks((prevLinks) => [...prevLinks, newLinkForUI]);
-          return [];
+          setLinks((prevLinks) => [...prevLinks, newLinkForUI]); //
+          return []; //
         }
         return newSelected;
       });
@@ -581,12 +675,12 @@ export default function KnowledgeCanvasPage() {
   const handleLinkClick = (linkId: string) => {
     if (isDeleteMode) {
       setSelectedItemsForDeletion((prev) => {
-        const isCurrentlySelected = prev.links.includes(linkId);
+        const isCurrentlySelected = prev.links.includes(linkId); //
         return {
           ...prev,
           links: isCurrentlySelected
-            ? prev.links.filter((id) => id !== linkId)
-            : [...prev.links, linkId],
+            ? prev.links.filter((id) => id !== linkId) //
+            : [...prev.links, linkId], //
         };
       });
     }
@@ -594,34 +688,34 @@ export default function KnowledgeCanvasPage() {
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (didPanRef.current) {
-      didPanRef.current = false;
+      didPanRef.current = false; //
       return;
     }
     if (isLinkingMode) {
-      setSelectedNodesForLinking([]);
+      setSelectedNodesForLinking([]); //
     }
   };
 
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isNoteDialogOpen) return;
+    const canvasBounds = canvasRef.current?.getBoundingClientRect(); //
+    if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isNoteDialogOpen) return; //
 
-    let target = event.target as HTMLElement;
+    let target = event.target as HTMLElement; //
     while (target && target !== event.currentTarget) {
-        if (target.closest('[data-node-item="true"]')) {
+        if (target.closest('[data-node-item="true"]')) { //
             return;
         }
-        target = target.parentElement as HTMLElement;
+        target = target.parentElement as HTMLElement; //
     }
 
-    const viewX = event.clientX - canvasBounds.left;
-    const viewY = event.clientY - canvasBounds.top;
+    const viewX = event.clientX - canvasBounds.left; //
+    const viewY = event.clientY - canvasBounds.top; //
 
-    const worldX = (viewX - canvasOffset.x) / zoomLevel;
-    const worldY = (viewY - canvasOffset.y) / zoomLevel;
+    const worldX = (viewX - canvasOffset.x) / zoomLevel; //
+    const worldY = (viewY - canvasOffset.y) / zoomLevel; //
 
-    setCurrentNoteCreationCoords({ x: worldX, y: worldY });
-    handleCreateNote();
+    setCurrentNoteCreationCoords({ x: worldX, y: worldY }); //
+    handleCreateNote(); //
   };
 
   const handleNodeDrag = useCallback(async (nodeId: string, x: number, y: number) => {
@@ -629,10 +723,10 @@ export default function KnowledgeCanvasPage() {
       prevNodes.map(node =>
         node.id === nodeId ? { ...node, x, y } : node
       )
-    );
+    ); //
     try {
         if (window.electronAPI) {
-            await window.electronAPI.updateNodePosition(nodeId, { x, y });
+            await window.electronAPI.updateNodePosition(nodeId, { x, y }); //
         }
     } catch (error) {
         console.error('Failed to update node position in DB:', error);
@@ -640,101 +734,101 @@ export default function KnowledgeCanvasPage() {
   }, []);
 
   const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || isLinkingMode) return;
+    if (event.button !== 0 || isLinkingMode) return; //
 
-    let targetElement = event.target as HTMLElement;
+    let targetElement = event.target as HTMLElement; //
     while (targetElement && targetElement !== event.currentTarget) {
-        if (targetElement.closest('[data-node-item="true"]')) {
+        if (targetElement.closest('[data-node-item="true"]')) { //
             return;
         }
-        targetElement = targetElement.parentElement as HTMLElement;
+        targetElement = targetElement.parentElement as HTMLElement; //
     }
 
-    event.preventDefault();
-    didPanRef.current = false;
-    setIsPanning(true);
+    event.preventDefault(); //
+    didPanRef.current = false; //
+    setIsPanning(true); //
     panStartCoordsRef.current = {
       x: event.clientX - canvasOffset.x,
       y: event.clientY - canvasOffset.y,
-    };
+    }; //
   };
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
-      if (!isPanning || !panStartCoordsRef.current) return;
-      didPanRef.current = true;
-      const newX = event.clientX - panStartCoordsRef.current.x;
-      const newY = event.clientY - panStartCoordsRef.current.y;
-      setCanvasOffset({ x: newX, y: newY });
+      if (!isPanning || !panStartCoordsRef.current) return; //
+      didPanRef.current = true; //
+      const newX = event.clientX - panStartCoordsRef.current.x; //
+      const newY = event.clientY - panStartCoordsRef.current.y; //
+      setCanvasOffset({ x: newX, y: newY }); //
     };
 
     const handleMouseUp = () => {
-      setIsPanning(false);
-      panStartCoordsRef.current = null;
+      setIsPanning(false); //
+      panStartCoordsRef.current = null; //
     };
 
     if (isPanning) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('mousemove', handleMouseMove); //
+      document.addEventListener('mouseup', handleMouseUp); //
     } else {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMouseMove); //
+      document.removeEventListener('mouseup', handleMouseUp); //
     }
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMouseMove); //
+      document.removeEventListener('mouseup', handleMouseUp); //
     };
   }, [isPanning]);
 
 
   const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const zoomSpeed = 0.1;
-    const minZoom = 0.2;
-    const maxZoom = 2.0;
+    event.preventDefault(); //
+    const zoomSpeed = 0.1; //
+    const minZoom = 0.2; //
+    const maxZoom = 2.0; //
 
-    const newZoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel - event.deltaY * zoomSpeed * 0.01));
+    const newZoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel - event.deltaY * zoomSpeed * 0.01)); //
 
-    if (newZoomLevel === zoomLevel) return;
+    if (newZoomLevel === zoomLevel) return; //
 
-    const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    if (!canvasBounds) return;
+    const canvasBounds = canvasRef.current?.getBoundingClientRect(); //
+    if (!canvasBounds) return; //
 
-    const mouseXInView = event.clientX - canvasBounds.left;
-    const mouseYInView = event.clientY - canvasBounds.top;
+    const mouseXInView = event.clientX - canvasBounds.left; //
+    const mouseYInView = event.clientY - canvasBounds.top; //
 
-    const worldXBeforeZoom = (mouseXInView - canvasOffset.x) / zoomLevel;
-    const worldYBeforeZoom = (mouseYInView - canvasOffset.y) / zoomLevel;
+    const worldXBeforeZoom = (mouseXInView - canvasOffset.x) / zoomLevel; //
+    const worldYBeforeZoom = (mouseYInView - canvasOffset.y) / zoomLevel; //
 
-    setZoomLevel(newZoomLevel);
+    setZoomLevel(newZoomLevel); //
 
-    const newOffsetX = mouseXInView - worldXBeforeZoom * newZoomLevel;
-    const newOffsetY = mouseYInView - worldYBeforeZoom * newZoomLevel;
+    const newOffsetX = mouseXInView - worldXBeforeZoom * newZoomLevel; //
+    const newOffsetY = mouseYInView - worldYBeforeZoom * newZoomLevel; //
 
-    setCanvasOffset({ x: newOffsetX, y: newOffsetY });
+    setCanvasOffset({ x: newOffsetX, y: newOffsetY }); //
   };
 
 
   const filteredNodesAndLinks = useMemo(() => {
-    const trimmedSearchTerm = searchTerm.trim();
+    const trimmedSearchTerm = searchTerm.trim(); //
     if (!trimmedSearchTerm && selectedFilterTags.length === 0) {
-      return { displayNodes: nodes, displayLinks: links };
+      return { displayNodes: nodes, displayLinks: links }; //
     }
 
-    const searchTerms = trimmedSearchTerm.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+    const searchTerms = trimmedSearchTerm.toLowerCase().split(/\s+/).filter(term => term.length > 0); //
 
     let matchedInitialNodes = nodes.filter(node => {
       const matchesSelectedTags = selectedFilterTags.length > 0
-        ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
+        ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag)) //
         : true;
 
-      let matchesSearchTerms = true;
+      let matchesSearchTerms = true; //
       if (searchTerms.length > 0) {
         matchesSearchTerms = searchTerms.every(term => {
-          const titleMatch = node.title.toLowerCase().includes(term);
-          const contentMatch = (node.type === 'note' || node.type === 'file') && node.content?.toLowerCase().includes(term);
-          const tagMatch = node.tags && node.tags.some(tag => tag.toLowerCase().includes(term));
+          const titleMatch = node.title.toLowerCase().includes(term); //
+          const contentMatch = (node.type === 'note' || node.type === 'file') && node.content?.toLowerCase().includes(term); //
+          const tagMatch = node.tags && node.tags.some(tag => tag.toLowerCase().includes(term)); //
           return titleMatch || contentMatch || tagMatch;
         });
       }
@@ -750,322 +844,322 @@ export default function KnowledgeCanvasPage() {
     });
 
 
-    if (matchedInitialNodes.length === 0 && (searchTerm.trim() || selectedFilterTags.length > 0)) {
-       return { displayNodes: [], displayLinks: [] };
+    if (matchedInitialNodes.length === 0 && (searchTerm.trim() || selectedFilterTags.length > 0)) { //
+       return { displayNodes: [], displayLinks: [] }; //
     }
-     if (matchedInitialNodes.length === 0 && !searchTerm.trim() && selectedFilterTags.length === 0) {
-      return { displayNodes: nodes, displayLinks: links };
+     if (matchedInitialNodes.length === 0 && !searchTerm.trim() && selectedFilterTags.length === 0) { //
+      return { displayNodes: nodes, displayLinks: links }; //
     }
 
 
-    const collectedNodesMap = new Map<string, NodeData>();
-    const collectedLinkIds = new Set<string>();
+    const collectedNodesMap = new Map<string, NodeData>(); //
+    const collectedLinkIds = new Set<string>(); //
 
     matchedInitialNodes.forEach(startNode => {
-      const visitedNodesInPath = new Set<string>();
-      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds);
+      const visitedNodesInPath = new Set<string>(); //
+      traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds); //
     });
 
-    const displayNodes = Array.from(collectedNodesMap.values());
+    const displayNodes = Array.from(collectedNodesMap.values()); //
     const displayLinks = links.filter(link =>
         collectedLinkIds.has(link.id) &&
         collectedNodesMap.has(link.sourceNodeId) &&
         collectedNodesMap.has(link.targetNodeId)
-    );
+    ); //
 
-    return { displayNodes, displayLinks };
+    return { displayNodes, displayLinks }; //
   }, [nodes, links, searchTerm, searchDepth, selectedFilterTags]);
 
   const currentEditingNodeDetails = useMemo(() => {
-    if (!editingNodeId) return null;
-    return nodes.find(n => n.id === editingNodeId);
+    if (!editingNodeId) return null; //
+    return nodes.find(n => n.id === editingNodeId); //
   }, [editingNodeId, nodes]);
 
   const handleCreateEditDialogClose = useCallback(() => {
-    setIsNoteDialogOpen(false);
-    setIsEditDialogOpen(false);
-    setEditingNodeId(null);
-    setCurrentNoteCreationCoords(null);
-    setCurrentNote({ title: '', content: '', tags: [] });
-    setCurrentEditData({ title: '', content: '', tags: [] });
-    setTagInputValue('');
-    setIsTagSelectorOpen(false);
+    setIsNoteDialogOpen(false); //
+    setIsEditDialogOpen(false); //
+    setEditingNodeId(null); //
+    setCurrentNoteCreationCoords(null); //
+    setCurrentNote({ title: '', content: '', tags: [] }); //
+    setCurrentEditData({ title: '', content: '', tags: [] }); //
+    setTagInputValue(''); //
+    setIsTagSelectorOpen(false); //
   }, []);
 
   const handleAddTagToDialog = () => {
-    const newTag = tagInputValue.trim();
-    if (!newTag) return;
+    const newTag = tagInputValue.trim(); //
+    if (!newTag) return; //
 
     if (isNoteDialogOpen) {
       if (!currentNote.tags.includes(newTag)) {
-        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, newTag] })); //
       }
     } else if (isEditDialogOpen) {
       if (!currentEditData.tags.includes(newTag)) {
-        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, newTag] })); //
       }
     }
-    setTagInputValue('');
+    setTagInputValue(''); //
   };
 
   const handleRemoveTagFromDialog = (tagToRemove: string) => {
     if (isNoteDialogOpen) {
-      setCurrentNote(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
+      setCurrentNote(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) })); //
     } else if (isEditDialogOpen) {
-      setCurrentEditData(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
+      setCurrentEditData(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) })); //
     }
   };
 
   const handleSelectTagFromList = (tagToAdd: string) => {
     if (isNoteDialogOpen) {
       if (!currentNote.tags.includes(tagToAdd)) {
-        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] })); //
       }
     } else if (isEditDialogOpen) {
       if (!currentEditData.tags.includes(tagToAdd)) {
-        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] })); //
       }
     }
   };
 
  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
-    const nodesToLayout = filteredNodesAndLinks.displayNodes;
-    const linksToConsider = filteredNodesAndLinks.displayLinks;
+    const nodesToLayout = filteredNodesAndLinks.displayNodes; //
+    const linksToConsider = filteredNodesAndLinks.displayLinks; //
 
     if (nodesToLayout.length === 0) {
       if (!isAutomaticCall) {
-        toast({ title: "No nodes to layout", description: "No nodes are currently visible to arrange." });
+        toast({ title: "No nodes to layout", description: "No nodes are currently visible to arrange." }); //
       }
       return;
     }
 
-    const layoutNodes = JSON.parse(JSON.stringify(nodesToLayout)) as NodeData[];
+    const layoutNodes = JSON.parse(JSON.stringify(nodesToLayout)) as NodeData[]; //
 
-    const adj = new Map<string, string[]>();
-    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>(); //
+    const inDegree = new Map<string, number>(); //
 
-    const DEFAULT_NODE_WIDTH = 256;
-    const DEFAULT_NODE_HEIGHT = 160;
-    const HORIZONTAL_SPACING = 100;
-    const VERTICAL_SPACING = 60;
-    const PAGE_MARGIN_X = 50;
-    const PAGE_MARGIN_Y = 50;
+    const DEFAULT_NODE_WIDTH = 256; //
+    const DEFAULT_NODE_HEIGHT = 160; //
+    const HORIZONTAL_SPACING = 100; //
+    const VERTICAL_SPACING = 60; //
+    const PAGE_MARGIN_X = 50; //
+    const PAGE_MARGIN_Y = 50; //
 
     layoutNodes.forEach(n => {
-      inDegree.set(n.id, 0);
-      adj.set(n.id, []);
+      inDegree.set(n.id, 0); //
+      adj.set(n.id, []); //
     });
 
     linksToConsider.forEach(link => {
-      const sourceExists = layoutNodes.some(n => n.id === link.sourceNodeId);
-      const targetExists = layoutNodes.some(n => n.id === link.targetNodeId);
+      const sourceExists = layoutNodes.some(n => n.id === link.sourceNodeId); //
+      const targetExists = layoutNodes.some(n => n.id === link.targetNodeId); //
       if (sourceExists && targetExists) {
-        adj.get(link.sourceNodeId)?.push(link.targetNodeId);
-        inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
+        adj.get(link.sourceNodeId)?.push(link.targetNodeId); //
+        inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1); //
       }
     });
 
-    let queue = layoutNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
-    const layers: string[][] = [];
+    let queue = layoutNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id); //
+    const layers: string[][] = []; //
 
     while (queue.length > 0) {
-      const currentLayerNodeIds = [...queue];
-      layers.push(currentLayerNodeIds);
-      const nextQueue: string[] = [];
+      const currentLayerNodeIds = [...queue]; //
+      layers.push(currentLayerNodeIds); //
+      const nextQueue: string[] = []; //
 
       currentLayerNodeIds.forEach(nodeId => {
         (adj.get(nodeId) || []).forEach(neighborId => {
-          inDegree.set(neighborId, (inDegree.get(neighborId) || 1) - 1);
+          inDegree.set(neighborId, (inDegree.get(neighborId) || 1) - 1); //
           if ((inDegree.get(neighborId) || 0) === 0) {
-            nextQueue.push(neighborId);
+            nextQueue.push(neighborId); //
           }
         });
       });
-      queue = nextQueue;
+      queue = nextQueue; //
     }
 
-    const newPositionsMap = new Map<string, { x: number, y: number }>();
+    const newPositionsMap = new Map<string, { x: number, y: number }>(); //
 
     layers.forEach((layer, layerIndex) => {
-      let currentY = PAGE_MARGIN_Y;
-      const layerX = PAGE_MARGIN_X + layerIndex * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+      let currentY = PAGE_MARGIN_Y; //
+      const layerX = PAGE_MARGIN_X + layerIndex * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING); //
       layer.forEach(nodeId => {
-        const nodeToPosition = layoutNodes.find(n => n.id === nodeId);
+        const nodeToPosition = layoutNodes.find(n => n.id === nodeId); //
         if (nodeToPosition) {
-          newPositionsMap.set(nodeId, { x: layerX, y: currentY });
-          currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+          newPositionsMap.set(nodeId, { x: layerX, y: currentY }); //
+          currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING; //
         }
       });
     });
 
-    const positionedNodeIds = new Set(layers.flat());
-    let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+    const positionedNodeIds = new Set(layers.flat()); //
+    let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING); //
     if (layers.some(layer => layer.length > 0)) {
-        lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING;
+        lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING; //
     }
 
-    let unPositionY = PAGE_MARGIN_Y;
+    let unPositionY = PAGE_MARGIN_Y; //
     layoutNodes.forEach(node => {
       if (!positionedNodeIds.has(node.id)) {
-        newPositionsMap.set(node.id, { x: lastX, y: unPositionY });
-        unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+        newPositionsMap.set(node.id, { x: lastX, y: unPositionY }); //
+        unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING; //
       }
     });
 
     setNodes(prevNodes =>
       prevNodes.map(n => {
-        const newPosition = newPositionsMap.get(n.id);
+        const newPosition = newPositionsMap.get(n.id); //
         if (newPosition && window.electronAPI) {
-            window.electronAPI.updateNodePosition(n.id, newPosition).catch(err => console.error("Failed to update node position during auto-layout:", err));
+            window.electronAPI.updateNodePosition(n.id, newPosition).catch(err => console.error("Failed to update node position during auto-layout:", err)); //
             return { ...n, x: newPosition.x, y: newPosition.y };
         }
         return n;
       })
-    );
+    ); //
     if (nodesToLayout.length > 0 && !isAutomaticCall) {
-     toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
+     toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." }); //
     }
   }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast]);
 
-  const handleAutoLayoutRef = useRef(handleAutoLayout); 
+  const handleAutoLayoutRef = useRef(handleAutoLayout);  //
   
   useEffect(() => {
-    handleAutoLayoutRef.current = handleAutoLayout;
+    handleAutoLayoutRef.current = handleAutoLayout; //
   }, [handleAutoLayout]); 
 
   useEffect(() => {
     if (isInitialRenderForAutoLayoutEffect.current) {
-      isInitialRenderForAutoLayoutEffect.current = false;
+      isInitialRenderForAutoLayoutEffect.current = false; //
       return;
     }
-    handleAutoLayoutRef.current(true); 
+    handleAutoLayoutRef.current(true);  //
   }, [searchTerm, selectedFilterTags, searchDepth]); 
 
   const handleDepthChange = useCallback((depthArr: number[]) => {
-    setSearchDepth(depthArr[0]);
+    setSearchDepth(depthArr[0]); //
   }, []);
 
   const handleApplyAutoLayout = useCallback(() => {
-    handleAutoLayout(false);
+    handleAutoLayout(false); //
   }, [handleAutoLayout]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Delete' && isDeleteMode) {
-        const hasSelectedItems = selectedItemsForDeletion.nodes.length > 0 || selectedItemsForDeletion.links.length > 0;
+      if (event.key === 'Delete' && isDeleteMode) { //
+        const hasSelectedItems = selectedItemsForDeletion.nodes.length > 0 || selectedItemsForDeletion.links.length > 0; //
         if (hasSelectedItems) {
-          setIsDeleteConfirmOpen(true);
+          setIsDeleteConfirmOpen(true); //
         }
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown); //
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown); //
     };
   }, [isDeleteMode, selectedItemsForDeletion]);
 
   const handleConfirmDelete = async () => {
     try {
       for (const nodeId of selectedItemsForDeletion.nodes) {
-        const nodeToDelete = nodes.find(n => n.id === nodeId);
+        const nodeToDelete = nodes.find(n => n.id === nodeId); //
         if (nodeToDelete && nodeToDelete.type === 'file' && nodeToDelete.filePath && window.electronAPI) {
           // No file deletion logic
         }
         if (window.electronAPI) {
-          await window.electronAPI.deleteNode(nodeId);
+          await window.electronAPI.deleteNode(nodeId); //
         }
       }
 
       for (const linkId of selectedItemsForDeletion.links) {
         if (window.electronAPI) {
-          await window.electronAPI.deleteLink(linkId);
+          await window.electronAPI.deleteLink(linkId); //
         }
       }
 
-      setNodes(prevNodes => prevNodes.filter(node => !selectedItemsForDeletion.nodes.includes(node.id)));
-      setLinks(prevLinks => prevLinks.filter(link => !selectedItemsForDeletion.links.includes(link.id)));
+      setNodes(prevNodes => prevNodes.filter(node => !selectedItemsForDeletion.nodes.includes(node.id))); //
+      setLinks(prevLinks => prevLinks.filter(link => !selectedItemsForDeletion.links.includes(link.id))); //
       
-      setSelectedItemsForDeletion({ nodes: [], links: [] });
-      setIsDeleteConfirmOpen(false);
+      setSelectedItemsForDeletion({ nodes: [], links: [] }); //
+      setIsDeleteConfirmOpen(false); //
       
       toast({
         title: "Success",
         description: `Deleted ${selectedItemsForDeletion.nodes.length} node(s) and ${selectedItemsForDeletion.links.length} link(s).`,
         variant: "default"
-      });
+      }); //
     } catch (error) {
       console.error("Failed to delete items:", error);
       toast({
         title: "Error",
         description: "Failed to delete some items.",
         variant: "destructive"
-      });
+      }); //
     }
   };
 
   // --- Keyboard Shortcuts Effect ---
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
-        const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+        const isCtrlOrCmd = event.ctrlKey || event.metaKey; //
 
-        const activeElement = document.activeElement;
+        const activeElement = document.activeElement; //
         const isTypingInProtectedInput = 
             activeElement && 
             (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') &&
-            !((activeElement as HTMLElement).id === 'toolbar-search-input' && event.key.toLowerCase() === 'f' && isCtrlOrCmd); // Allow Ctrl+F for search input itself
+            !((activeElement as HTMLElement).id === 'toolbar-search-input' && event.key.toLowerCase() === 'f' && isCtrlOrCmd); //
         
-        if (isTypingInProtectedInput && !(isCtrlOrCmd && ['c', 'v', 'x', 'a', 'z', 'y'].includes(event.key.toLowerCase())) ) {
-           if (isCtrlOrCmd && ['n', 'l', 'd', 'u'].includes(event.key.toLowerCase())) {
+        if (isTypingInProtectedInput && !(isCtrlOrCmd && ['c', 'v', 'x', 'a', 'z', 'y'].includes(event.key.toLowerCase())) ) { //
+           if (isCtrlOrCmd && ['n', 'l', 'd', 'u'].includes(event.key.toLowerCase())) { //
                // Block specific app shortcuts if typing in general inputs/textareas
            } else {
                 return; 
            }
         }
 
-        if (isCtrlOrCmd) {
+        if (isCtrlOrCmd) { //
             switch (event.key.toLowerCase()) {
-                case 'n':
-                    event.preventDefault();
-                    handleCreateNote();
+                case 'n': //
+                    event.preventDefault(); //
+                    handleCreateNote(); //
                     break;
-                case 'l':
-                    event.preventDefault();
-                    handleToggleLinkMode();
+                case 'l': //
+                    event.preventDefault(); //
+                    handleToggleLinkMode(); //
                     break;
-                case 'd':
-                    event.preventDefault();
-                    handleToggleDeleteMode();
+                case 'd': //
+                    event.preventDefault(); //
+                    handleToggleDeleteMode(); //
                     break;
-                case 'u':
-                    event.preventDefault();
-                    shortcutFileInputRef.current?.click();
+                case 'u': //
+                    event.preventDefault(); //
+                    shortcutFileInputRef.current?.click(); //
                     break;
-                case 'f':
-                    event.preventDefault();
-                    const searchInput = document.getElementById('toolbar-search-input') as HTMLInputElement | null;
-                    searchInput?.focus();
-                    searchInput?.select(); // Optionally select existing text
+                case 'f': //
+                    event.preventDefault(); //
+                    const searchInput = document.getElementById('toolbar-search-input') as HTMLInputElement | null; //
+                    searchInput?.focus(); //
+                    searchInput?.select(); //
                     break;
             }
-        } else if (event.key === 'Escape') {
+        } else if (event.key === 'Escape') { //
              if (isNoteDialogOpen || isEditDialogOpen) {
-                event.preventDefault();
-                handleCreateEditDialogClose();
+                event.preventDefault(); //
+                handleCreateEditDialogClose(); //
             } else if (isLinkingMode || isDeleteMode) {
-                event.preventDefault();
-                setIsLinkingMode(false);
-                setIsDeleteMode(false);
-                setSelectedNodesForLinking([]);
-                setSelectedItemsForDeletion({ nodes: [], links: [] });
-                toast({ title: "Mode Deactivated", description: "Returned to select mode."});
+                event.preventDefault(); //
+                setIsLinkingMode(false); //
+                setIsDeleteMode(false); //
+                setSelectedNodesForLinking([]); //
+                setSelectedItemsForDeletion({ nodes: [], links: [] }); //
+                toast({ title: "Mode Deactivated", description: "Returned to select mode."}); //
             }
         }
     };
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
+    window.addEventListener('keydown', handleGlobalKeyDown); //
     return () => {
-        window.removeEventListener('keydown', handleGlobalKeyDown);
+        window.removeEventListener('keydown', handleGlobalKeyDown); //
     };
   }, [
     handleCreateNote, 
@@ -1083,50 +1177,50 @@ export default function KnowledgeCanvasPage() {
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <input
           type="file"
-          ref={shortcutFileInputRef}
-          onChange={handleFileUpload}
+          ref={shortcutFileInputRef} //
+          onChange={handleFileUpload} //
           className="hidden"
           multiple
           accept=".pdf,.docx,.txt,.jpg,.jpeg,.png"
       />
       <Toolbar
-        onFileUpload={handleFileUpload}
-        onCreateNote={handleCreateNote}
-        onSearch={setSearchTerm}
-        currentSearchTerm={searchTerm}
-        onDepthChange={handleDepthChange}
-        currentDepth={searchDepth}
-        onToggleLinkMode={handleToggleLinkMode}
-        isLinkingMode={isLinkingMode}
-        onToggleDeleteMode={handleToggleDeleteMode}
-        isDeleteMode={isDeleteMode}
-        allTags={allTags}
-        selectedFilterTags={selectedFilterTags}
-        onFilterTagToggle={handleFilterTagToggle}
-        onAutoLayout={handleApplyAutoLayout}
+        onFileUpload={handleFileUpload} //
+        onCreateNote={handleCreateNote} //
+        onSearch={setSearchTerm} //
+        currentSearchTerm={searchTerm} //
+        onDepthChange={handleDepthChange} //
+        currentDepth={searchDepth} //
+        onToggleLinkMode={handleToggleLinkMode} //
+        isLinkingMode={isLinkingMode} //
+        onToggleDeleteMode={handleToggleDeleteMode} //
+        isDeleteMode={isDeleteMode} //
+        allTags={allTags} //
+        selectedFilterTags={selectedFilterTags} //
+        onFilterTagToggle={handleFilterTagToggle} //
+        onAutoLayout={handleApplyAutoLayout} //
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
-          canvasRef={canvasRef}
-          nodes={filteredNodesAndLinks.displayNodes}
-          links={filteredNodesAndLinks.displayLinks}
-          selectedNodeIdsForLinking={selectedNodesForLinking}
-          isLinkingMode={isLinkingMode}
-          isDeleteMode={isDeleteMode}
-          selectedItemsForDeletion={selectedItemsForDeletion}
-          isPanning={isPanning}
-          canvasOffset={canvasOffset}
-          zoomLevel={zoomLevel}
-          onNodeClick={handleNodeClick}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          onCanvasClick={handleCanvasClick}
-          onCanvasDoubleClick={handleCanvasDoubleClick}
-          onCanvasMouseDownForPan={handleCanvasMouseDownForPan}
-          onCanvasWheel={handleCanvasWheel}
-          onFilesDrop={handleFilesDrop}
-          onNodeDrag={handleNodeDrag}
-          onNodeContentUpdate={handleUpdateNodeContent}
-          onLinkClick={handleLinkClick}
+          canvasRef={canvasRef} //
+          nodes={filteredNodesAndLinks.displayNodes} //
+          links={filteredNodesAndLinks.displayLinks} //
+          selectedNodeIdsForLinking={selectedNodesForLinking} //
+          isLinkingMode={isLinkingMode} //
+          isDeleteMode={isDeleteMode} //
+          selectedItemsForDeletion={selectedItemsForDeletion} //
+          isPanning={isPanning} //
+          canvasOffset={canvasOffset} //
+          zoomLevel={zoomLevel} //
+          onNodeClick={handleNodeClick} //
+          onNodeDoubleClick={handleNodeDoubleClick} //
+          onCanvasClick={handleCanvasClick} //
+          onCanvasDoubleClick={handleCanvasDoubleClick} //
+          onCanvasMouseDownForPan={handleCanvasMouseDownForPan} //
+          onCanvasWheel={handleCanvasWheel} //
+          onFilesDrop={handleFilesDrop} //
+          onNodeDrag={handleNodeDrag} //
+          onNodeContentUpdate={handleUpdateNodeContent} //
+          onLinkClick={handleLinkClick} //
         />
       </main>
       <Toaster />
@@ -1138,12 +1232,16 @@ export default function KnowledgeCanvasPage() {
               {editingNodeId
                 ? currentEditingNodeDetails?.type === 'note'
                   ? `Edit Note: ${currentEditingNodeDetails?.title}`
-                  : `Edit File Details: ${currentEditingNodeDetails?.title}`
+                  : currentEditingNodeDetails?.type === 'file'
+                    ? `Edit File Details: ${currentEditingNodeDetails?.title}`
+                    : `Edit Link: ${currentEditingNodeDetails?.title}` // Added for link type
                 : "Create New Note"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {editingNodeId
-                ? (currentEditingNodeDetails?.type === 'file' ? "Update the file description and tags." : "Update the details below.")
+                ? (currentEditingNodeDetails?.type === 'file' ? "Update the file description and tags." 
+                  : currentEditingNodeDetails?.type === 'link' ? "Update the link title and URL." // Added for link type
+                  : "Update the details below.")
                 : "Enter a title, content (optional), and tags (optional) for your new note."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1155,30 +1253,30 @@ export default function KnowledgeCanvasPage() {
               <div className="col-span-3 relative">
                 <Input
                   id="dialog-title"
-                  value={editingNodeId ? currentEditData.title : currentNote.title}
+                  value={editingNodeId ? currentEditData.title : currentNote.title} //
                   onChange={(e) =>
                     editingNodeId
-                      ? setCurrentEditData(prev => ({ ...prev, title: e.target.value }))
-                      : setCurrentNote(prev => ({ ...prev, title: e.target.value }))
+                      ? setCurrentEditData(prev => ({ ...prev, title: e.target.value })) //
+                      : setCurrentNote(prev => ({ ...prev, title: e.target.value })) //
                   }
-                  onFocus={() => setIsTitleFieldFocused(true)}
-                  onBlur={() => setIsTitleFieldFocused(false)}
+                  onFocus={() => setIsTitleFieldFocused(true)} //
+                  onBlur={() => setIsTitleFieldFocused(false)} //
                   className="w-full"
                 />
                 {(() => {
-                  if (!isTitleFieldFocused) return null;
+                  if (!isTitleFieldFocused) return null; //
                   
-                  const currentTitle = editingNodeId ? currentEditData.title : currentNote.title;
-                  const trimmedTitle = currentTitle.trim().toLowerCase();
+                  const currentTitle = editingNodeId ? currentEditData.title : currentNote.title; //
+                  const trimmedTitle = currentTitle.trim().toLowerCase(); //
                   
-                  if (trimmedTitle.length < 2) return null;
+                  if (trimmedTitle.length < 2) return null; //
                   
                   const matchingNodes = nodes.filter(node => 
                     node.id !== editingNodeId && 
                     node.title.toLowerCase().includes(trimmedTitle)
-                  );
+                  ); //
                   
-                  if (matchingNodes.length === 0) return null;
+                  if (matchingNodes.length === 0) return null; //
                   
                   return (
                     <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-md max-h-32 overflow-y-auto">
@@ -1198,21 +1296,26 @@ export default function KnowledgeCanvasPage() {
               </div>
             </div>
             
-            {(!editingNodeId || currentEditingNodeDetails?.type === 'note' || currentEditingNodeDetails?.type === 'file') && (
+            {(!editingNodeId || currentEditingNodeDetails?.type === 'note' || currentEditingNodeDetails?.type === 'file' || currentEditingNodeDetails?.type === 'link') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
-                  {currentEditingNodeDetails?.type === 'file' ? "Description" : "Content"}
+                  {editingNodeId && currentEditingNodeDetails?.type === 'file' ? "Description" : 
+                   editingNodeId && currentEditingNodeDetails?.type === 'link' ? "URL" : "Content"}
                 </Label>
                 <Textarea
                   id="dialog-content"
-                  value={editingNodeId ? currentEditData.content : currentNote.content}
+                  value={editingNodeId ? currentEditData.content : currentNote.content} //
                   onChange={(e) =>
                     editingNodeId
-                      ? setCurrentEditData(prev => ({ ...prev, content: e.target.value }))
-                      : setCurrentNote(prev => ({ ...prev, content: e.target.value }))
+                      ? setCurrentEditData(prev => ({ ...prev, content: e.target.value })) //
+                      : setCurrentNote(prev => ({ ...prev, content: e.target.value })) //
                   }
-                  className="col-span-3 min-h-[100px]"
-                  placeholder={currentEditingNodeDetails?.type === 'file' ? "Enter a description for this file..." : "Type your note here..."}
+                  className="col-span-3 min-h-[100px]" //
+                  placeholder={
+                    editingNodeId && currentEditingNodeDetails?.type === 'file' ? "Enter a description for this file..." :
+                    editingNodeId && currentEditingNodeDetails?.type === 'link' ? "Enter or paste URL..." :
+                    "Type your note here..."
+                  }
                 />
               </div>
             )}
@@ -1221,7 +1324,7 @@ export default function KnowledgeCanvasPage() {
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label className="text-right">File</Label>
                 <div className="col-span-3 text-sm text-muted-foreground break-all flex items-center">
-                  <FileIcon className="inline h-4 w-4 mr-2 flex-shrink-0" />
+                  <FileIcon className="inline h-4 w-4 mr-2 flex-shrink-0" /> 
                   <span className="truncate" title={currentEditingNodeDetails.filePath}>
                     {currentEditingNodeDetails.filePath.substring(currentEditingNodeDetails.filePath.lastIndexOf(path.sep) + 1)}
                   </span>
@@ -1232,9 +1335,9 @@ export default function KnowledgeCanvasPage() {
                         onClick={async () => {
                             if (currentEditingNodeDetails?.filePath && window.electronAPI) {
                                 try {
-                                    await window.electronAPI.openLocalFile(currentEditingNodeDetails.filePath);
+                                    await window.electronAPI.openLocalFile(currentEditingNodeDetails.filePath); //
                                 } catch (err) {
-                                    toast({title: "Error", description: "Could not open file.", variant: "destructive"})
+                                    toast({title: "Error", description: "Could not open file.", variant: "destructive"}) //
                                 }
                             }
                         }}
@@ -1244,6 +1347,23 @@ export default function KnowledgeCanvasPage() {
                 </div>
               </div>
             )}
+            
+            {editingNodeId && currentEditingNodeDetails?.type === 'link' && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">Current URL</Label>
+                <div className="col-span-3 text-sm text-blue-500 hover:underline cursor-pointer break-all flex items-center"
+                     onClick={async () => {
+                         if(currentEditingNodeDetails?.url && window.electronAPI) {
+                             await window.electronAPI.openExternal(currentEditingNodeDetails.url);
+                         }
+                     }}
+                     title={`Open ${currentEditingNodeDetails.url}`}>
+                  <LinkIconLucide className="inline h-4 w-4 mr-2 flex-shrink-0" />
+                  <span className="truncate">{currentEditingNodeDetails.url}</span>
+                </div>
+              </div>
+            )}
+
 
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="dialog-tags-input" className="text-right pt-2">
@@ -1253,14 +1373,14 @@ export default function KnowledgeCanvasPage() {
                 <div className="flex gap-2">
                   <Input
                     id="dialog-tags-input"
-                    value={tagInputValue}
-                    onChange={(e) => setTagInputValue(e.target.value)}
+                    value={tagInputValue} //
+                    onChange={(e) => setTagInputValue(e.target.value)} //
                     className="flex-grow"
                     placeholder="Add new tag and press Enter"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddTagToDialog();
+                        e.preventDefault(); //
+                        handleAddTagToDialog(); //
                       }
                     }}
                   />
@@ -1276,18 +1396,18 @@ export default function KnowledgeCanvasPage() {
                         <Input
                           type="text"
                           placeholder="Search tags..."
-                          value={tagSearchValue}
-                          onChange={(e) => setTagSearchValue(e.target.value)}
+                          value={tagSearchValue} //
+                          onChange={(e) => setTagSearchValue(e.target.value)} //
                           className="h-8"
                         />
                       </div>
                       <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
                         {allTags.length > 0 ? (
                           allTags
-                            .filter(tag => tag.toLowerCase().includes(tagSearchValue.toLowerCase()))
+                            .filter(tag => tag.toLowerCase().includes(tagSearchValue.toLowerCase())) //
                             .map(tag => {
-                              const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
-                              const isAlreadyAdded = currentDialogTags.includes(tag);
+                              const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags; //
+                              const isAlreadyAdded = currentDialogTags.includes(tag); //
                               return (
                                 <Button
                                   key={tag}
@@ -1296,13 +1416,13 @@ export default function KnowledgeCanvasPage() {
                                   className={cn(
                                     "w-full justify-start text-left h-8",
                                     isAlreadyAdded && "opacity-50 cursor-not-allowed"
-                                  )}
+                                  )} //
                                   onClick={() => {
                                     if (!isAlreadyAdded) {
-                                      handleSelectTagFromList(tag);
+                                      handleSelectTagFromList(tag); //
                                     }
                                   }}
-                                  disabled={isAlreadyAdded}
+                                  disabled={isAlreadyAdded} //
                                 >
                                   {tag}
                                   {isAlreadyAdded && <CheckIcon className="ml-auto h-3 w-3" />}
@@ -1327,7 +1447,7 @@ export default function KnowledgeCanvasPage() {
                         variant="ghost"
                         size="icon"
                         className="h-auto w-auto p-0.5 hover:bg-destructive/20"
-                        onClick={() => handleRemoveTagFromDialog(tag)}
+                        onClick={() => handleRemoveTagFromDialog(tag)} //
                       >
                         <XIcon className="h-3 w-3 text-destructive" />
                         <span className="sr-only">Remove tag {tag}</span>
@@ -1339,7 +1459,7 @@ export default function KnowledgeCanvasPage() {
             </div>
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCreateEditDialogClose}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleCreateEditDialogClose}>Cancel</AlertDialogCancel> 
             <AlertDialogAction onClick={editingNodeId ? handleSaveEditedNode : handleSaveNote}>
               {editingNodeId ? "Save Changes" : "Save Note"}
             </AlertDialogAction>
@@ -1356,10 +1476,10 @@ export default function KnowledgeCanvasPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel> 
             <AlertDialogAction 
-              onClick={handleConfirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmDelete} //
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90" //
             >
               Delete
             </AlertDialogAction>

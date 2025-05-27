@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import type { NodeData } from '@/types';
-import { FileText, StickyNote as NoteIcon, Image as ImageIcon, ExternalLink } from 'lucide-react'; // Added ExternalLink
+import { FileText, StickyNote as NoteIcon, Image as ImageIcon, ExternalLink, Link as LinkIconLucide } from 'lucide-react'; // Import LinkIconLucide
 import { FilePdfIcon } from '@/components/icons/FilePdfIcon';
 import { FileDocxIcon } from '@/components/icons/FileDocxIcon';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +47,9 @@ export function NodeItem({
   const renderIcon = () => {
     if (node.type === 'note') {
       return <NoteIcon className="h-6 w-6 text-primary" />;
+    }
+    if (node.type === 'link') { // Add case for 'link'
+      return <LinkIconLucide className="h-6 w-6 text-green-600" />;
     }
     if (node.type === 'file') {
       switch (node.fileType) {
@@ -127,6 +130,27 @@ export function NodeItem({
     };
   }, [isDragging, mouseMoveHandler, mouseUpHandler]);
 
+  const handleOpenFileOrUrl = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (node.type === 'file' && node.filePath && window.electronAPI) {
+      try {
+        const success = await window.electronAPI.openLocalFile(node.filePath);
+        if (!success) {
+          // Error handled in main
+        }
+      } catch (error) {
+        console.error("Error opening file:", error);
+        toast({ title: "Error", description: "Could not open the file.", variant: "destructive" });
+      }
+    } else if (node.type === 'link' && node.url && window.electronAPI) {
+      try {
+        await window.electronAPI.openExternal(node.url);
+      } catch (error) {
+        console.error("Error opening URL:", error);
+        toast({ title: "Error", description: "Could not open the URL.", variant: "destructive" });
+      }
+    }
+  };
 
   const handleClick = (e: React.MouseEvent) => {
     if (didDragRef.current) {
@@ -210,32 +234,33 @@ export function NodeItem({
             </CardTitle>
             {node.fileType && <CardDescription className="text-xs">{node.fileType}</CardDescription>}
           </div>
-          {node.type === 'file' && node.filePath && (
-            <Button
-              data-open-file-button="true"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 flex-shrink-0"
-              onClick={handleOpenFile}
-              title={`Open ${node.title}`}
-              aria-label={`Open file ${node.title}`}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-          )}
+            {(node.type === 'file' && node.filePath || node.type === 'link' && node.url) && (
+              <Button
+                data-open-file-button="true" // Keep this for preventing drag
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={handleOpenFileOrUrl}
+                title={node.type === 'file' ? `Open ${node.title}` : `Open URL: ${node.url}`}
+                aria-label={node.type === 'file' ? `Open file ${node.title}` : `Open URL ${node.url}`}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            )}
         </div>
       </CardHeader>
-      {(node.type === 'note' || (node.type === 'file' && node.content)) && ( // Show content for notes, or for files if description exists
+      {(node.type === 'note' || (node.type === 'file' && node.content) || node.type === 'link') && (
         <CardContent
           className="p-3 pt-0 text-sm overflow-hidden flex-grow"
-          // Double click on content area for files could also open the file, or edit description
-          // For notes, this is for inline editing if implemented.
         >
           <p className={cn(
               "whitespace-pre-wrap break-words",
-              node.content ? "line-clamp-3" : "text-muted-foreground italic"
+              (node.content || (node.type === 'link' && node.url)) ? "line-clamp-3" : "text-muted-foreground italic"
           )}>
-            {node.content || (node.type === 'file' ? 'No description.' : '')}
+            {node.type === 'link' 
+              ? (node.url || 'No URL') 
+              : (node.content || (node.type === 'file' ? 'No description.' : ''))
+            }
           </p>
         </CardContent>
       )}

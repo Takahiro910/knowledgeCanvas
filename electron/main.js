@@ -207,6 +207,16 @@ function setupIpcHandlers() {
       return false;
     }
   });
+  ipcMain.handle('shell:openExternal', async (event, urlToOpen) => {
+    try {
+      await shell.openExternal(urlToOpen);
+      return true;
+    } catch (error) {
+      console.error('Failed to open external URL:', error);
+      dialog.showErrorBox('Error Opening Link', `Could not open the URL: ${error.message}`);
+      return false;
+    }
+  });
 }
 
 
