@@ -28,8 +28,8 @@ interface ToolbarProps {
 export function Toolbar({
   onFileUpload,
   onCreateNote,
-  onSearch,
-  currentSearchTerm,
+  // onSearch,
+  // currentSearchTerm,
   onDepthChange,
   currentDepth,
   onToggleLinkMode,
@@ -40,6 +40,8 @@ export function Toolbar({
   selectedFilterTags,
   onFilterTagToggle,
   onAutoLayout,
+  currentSearchTerm,
+  onSearch,
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -84,6 +86,7 @@ export function Toolbar({
         <div className="flex items-center gap-2">
           <Search className="h-5 w-5 text-muted-foreground" />
           <Input
+            id="toolbar-search-input" // ★ 検索入力にIDを追加
             type="search"
             placeholder="Search nodes (inc. tags)..."
             className="w-64"

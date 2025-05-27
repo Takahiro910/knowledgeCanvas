@@ -1,3 +1,4 @@
+// src/app/page.tsx
 "use client";
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
@@ -22,24 +23,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { XIcon, PlusCircleIcon, CheckIcon, FileIcon } from 'lucide-react'; // FileIcon を追加
+import { XIcon, PlusCircleIcon, CheckIcon, FileIcon, Search } from 'lucide-react'; // Searchを追加 (Toolbar内で使用されているため)
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
-import path from 'path'; // path をインポート
+import path from 'path';
 
-// ★ DBのdataカラムに保存する内容を表す型 (page.tsx内で定義)
 interface NodeMetaData {
   title?: string;
   content?: string;
   fileType?: AppFileType;
-  filePath?: string; // filePath を追加
+  filePath?: string;
   tags?: string[];
   width?: number;
   height?: number;
-  // 他に data カラムに保存するプロパティがあればここに追加
 }
 
-// Preloadで公開したAPIの型定義
 declare global {
   interface Window {
     electronAPI: {
@@ -53,7 +51,6 @@ declare global {
       deleteLink: (id: string) => Promise<any>;
       openFileDialog: () => Promise<string[]>;
       saveFileDialog: (defaultPath?: string) => Promise<string | null>;
-      // New Local File Operations
       saveLocalFile: (fileName: string, fileDataBuffer: ArrayBuffer) => Promise<string | null>;
       openLocalFile: (filePath: string) => Promise<boolean>;
       getUploadsDir: () => Promise<string>;
@@ -61,8 +58,6 @@ declare global {
   }
 }
 
-
-// Helper to determine file type
 const getFileType = (fileName: string): AppFileType => {
   const extension = fileName.split('.').pop()?.toLowerCase();
   if (extension === 'pdf') return 'PDF';
@@ -72,7 +67,6 @@ const getFileType = (fileName: string): AppFileType => {
   return 'OTHER';
 };
 
-// Recursive function to find linked nodes and links up to a certain depth
 const traverseGraph = (
   startNodeId: string,
   currentDepth: number,
@@ -145,6 +139,8 @@ export default function KnowledgeCanvasPage() {
   const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
 
   const { toast } = useToast();
+  const shortcutFileInputRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     if (!isTagSelectorOpen) {
@@ -156,7 +152,6 @@ export default function KnowledgeCanvasPage() {
   const previousLinksLengthRef = useRef(links.length);
   const isInitialRenderForAutoLayoutEffect = useRef(true);
 
-  // --- データ読み込み ---
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -173,7 +168,7 @@ export default function KnowledgeCanvasPage() {
               title: metaData.title || '',
               content: metaData.content,
               fileType: metaData.fileType,
-              filePath: metaData.filePath, // filePath を追加
+              filePath: metaData.filePath,
               tags: metaData.tags || [],
               x: position.x,
               y: position.y,
@@ -220,13 +215,12 @@ export default function KnowledgeCanvasPage() {
     );
   };
 
-
   const internalAddNode = useCallback(async (
     type: NodeType,
     title: string,
     content?: string,
     fileType?: AppFileType,
-    filePath?: string, // filePath パラメータを追加
+    filePath?: string,
     tags?: string[],
     posX?: number,
     posY?: number,
@@ -252,7 +246,7 @@ export default function KnowledgeCanvasPage() {
       title,
       content,
       fileType,
-      filePath, // filePath を追加
+      filePath,
       tags: tags || [],
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
@@ -268,13 +262,12 @@ export default function KnowledgeCanvasPage() {
             title: newNodeForUI.title,
             content: newNodeForUI.content,
             fileType: newNodeForUI.fileType,
-            filePath: newNodeForUI.filePath, // filePath を追加
+            filePath: newNodeForUI.filePath,
             tags: newNodeForUI.tags,
             width: newNodeForUI.width,
             height: newNodeForUI.height,
         } as NodeMetaData),
     };
-
 
     try {
         if (window.electronAPI) {
@@ -287,18 +280,7 @@ export default function KnowledgeCanvasPage() {
         toast({ title: "Error", description: `Failed to add ${type}.`, variant: "destructive" });
     }
     return newNodeForUI;
-  }, [canvasRef, canvasOffset.x, canvasOffset.y, zoomLevel, toast]);
-
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files) {
-      handleFilesDrop(Array.from(files));
-    }
-    if (event.target) {
-      event.target.value = "";
-    }
-  };
+  }, [canvasOffset.x, canvasOffset.y, zoomLevel, toast]);
 
   const handleFilesDrop = useCallback(async (droppedFiles: File[], dropX?: number, dropY?: number) => {
     if (!window.electronAPI) {
@@ -309,7 +291,7 @@ export default function KnowledgeCanvasPage() {
     for (const file of droppedFiles) {
       const nodeTypeForFile: NodeType = 'file';
       const appFileType = getFileType(file.name);
-      const originalFilePath = (file as any).path; // Electronによって追加される元のファイルパス
+      const originalFilePath = (file as any).path;
 
       if (!originalFilePath) {
         toast({ title: "Error", description: `Could not get path for "${file.name}".`, variant: "destructive" });
@@ -330,19 +312,23 @@ export default function KnowledgeCanvasPage() {
       }
       
       try {
-        // ファイルのローカル保存処理は削除
-        // const fileBuffer = await file.arrayBuffer();
-        // const savedFilePath = await window.electronAPI.saveLocalFile(file.name, fileBuffer); // 削除
-
-        // originalFilePath を直接使用
         await internalAddNode(nodeTypeForFile, file.name, undefined, appFileType, originalFilePath, [], dropX, dropY);
-        // internalAddNode は変更なしで、filePath に originalFilePath を渡す
       } catch (error) {
         console.error("Error processing dropped file:", error);
         toast({ title: "Error Processing File", description: `Failed to process "${file.name}".`, variant: "destructive" });
       }
     }
-  }, [internalAddNode, nodes, toast]); // internalAddNode と nodes への依存を維持
+  }, [internalAddNode, nodes, toast]);
+
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      await handleFilesDrop(Array.from(files));
+    }
+    if (event.target) {
+      event.target.value = "";
+    }
+  }, [handleFilesDrop]);
 
 
   const handleCreateNote = useCallback(() => {
@@ -370,8 +356,6 @@ export default function KnowledgeCanvasPage() {
       });
       return;
     }
-
-    // For notes, filePath is undefined
     await internalAddNode('note', currentNote.title, currentNote.content, undefined, undefined, currentNote.tags, currentNoteCreationCoords?.x, currentNoteCreationCoords?.y);
     setIsNoteDialogOpen(false);
     setCurrentNoteCreationCoords(null);
@@ -385,7 +369,6 @@ export default function KnowledgeCanvasPage() {
         title: nodeToEdit.title,
         content: nodeToEdit.content || '',
         tags: nodeToEdit.tags || []
-        // filePath is part of nodeToEdit, not directly in currentEditData for modification here
       });
       setTagInputValue('');
       setIsEditDialogOpen(true);
@@ -400,7 +383,7 @@ export default function KnowledgeCanvasPage() {
           toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
           return;
       }
-      if (nodeToUpdate.type !== 'note') { // Only notes have inline content editing this way
+      if (nodeToUpdate.type !== 'note') {
           toast({ title: "Info", description: "Only note content can be edited directly here. Edit file descriptions via double-click.", variant: "default" });
           return;
       }
@@ -411,7 +394,7 @@ export default function KnowledgeCanvasPage() {
           title: nodeToUpdate.title,
           content: newContent,
           fileType: nodeToUpdate.fileType,
-          filePath: nodeToUpdate.filePath, // Preserve filePath
+          filePath: nodeToUpdate.filePath,
           tags: nodeToUpdate.tags,
           width: nodeToUpdate.width,
           height: newHeight,
@@ -449,14 +432,13 @@ export default function KnowledgeCanvasPage() {
 
     const newHeight = nodeBeingEdited.type === 'note'
         ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160)
-        : nodeBeingEdited.height; // File node height might not change based on description
+        : nodeBeingEdited.height;
 
-    // filePath is preserved from nodeBeingEdited, not from currentEditData
     const dataToUpdateInDB: Partial<NodeMetaData> = {
         title: currentEditData.title,
-        content: currentEditData.content, // For files, this is the description
+        content: currentEditData.content,
         fileType: nodeBeingEdited.fileType,
-        filePath: nodeBeingEdited.filePath, // Crucial: preserve existing filePath
+        filePath: nodeBeingEdited.filePath,
         tags: currentEditData.tags,
         width: nodeBeingEdited.width,
         height: newHeight,
@@ -483,12 +465,11 @@ export default function KnowledgeCanvasPage() {
           prevNodes.map(n =>
             n.id === editingNodeId
               ? {
-                  ...n, // Spread existing node data first
+                  ...n, 
                   title: currentEditData.title,
-                  content: currentEditData.content, // Update content/description
+                  content: currentEditData.content,
                   tags: currentEditData.tags,
                   height: newHeight,
-                  // filePath is part of 'n' and dataToUpdateInDB, so it's preserved
                 }
               : n
           )
@@ -502,8 +483,7 @@ export default function KnowledgeCanvasPage() {
     setEditingNodeId(null);
   };
 
-
-  const handleToggleLinkMode = () => {
+  const handleToggleLinkMode = useCallback(() => {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
     setSelectedNodesForLinking([]);
     if (isPanning) setIsPanning(false);
@@ -511,9 +491,9 @@ export default function KnowledgeCanvasPage() {
       setIsDeleteMode(false);
       setSelectedItemsForDeletion({ nodes: [], links: [] });
     }
-  };
+  }, [isPanning, isDeleteMode]);
 
-  const handleToggleDeleteMode = () => {
+  const handleToggleDeleteMode = useCallback(() => {
     setIsDeleteMode(prevIsDeleteMode => !prevIsDeleteMode);
     setSelectedItemsForDeletion({ nodes: [], links: [] });
     if (isPanning) setIsPanning(false);
@@ -521,7 +501,8 @@ export default function KnowledgeCanvasPage() {
       setIsLinkingMode(false);
       setSelectedNodesForLinking([]);
     }
-  };
+  }, [isPanning, isLinkingMode]);
+
 
   useEffect(() => {
     if (isFirstRenderForLinkModeToast.current) {
@@ -549,7 +530,6 @@ export default function KnowledgeCanvasPage() {
       didPanRef.current = false;
       return;
     }
-     // Prevent node selection if clicking on the open file button within NodeItem
     if ((event.target as HTMLElement).closest('[data-open-file-button="true"]')) {
         event.stopPropagation();
         return;
@@ -749,9 +729,9 @@ export default function KnowledgeCanvasPage() {
         ? node.tags && node.tags.some(tag => selectedFilterTags.includes(tag))
         : true;
 
-      let matchesSearchTerms = true; // デフォルトはtrue（検索語がない場合）
+      let matchesSearchTerms = true;
       if (searchTerms.length > 0) {
-        matchesSearchTerms = searchTerms.every(term => { // すべての検索語に一致するか
+        matchesSearchTerms = searchTerms.every(term => {
           const titleMatch = node.title.toLowerCase().includes(term);
           const contentMatch = (node.type === 'note' || node.type === 'file') && node.content?.toLowerCase().includes(term);
           const tagMatch = node.tags && node.tags.some(tag => tag.toLowerCase().includes(term));
@@ -759,7 +739,6 @@ export default function KnowledgeCanvasPage() {
         });
       }
 
-      // フィルタリング条件の組み合わせ
       if (selectedFilterTags.length > 0 && searchTerms.length > 0) {
         return matchesSelectedTags && matchesSearchTerms;
       } else if (selectedFilterTags.length > 0) {
@@ -767,7 +746,6 @@ export default function KnowledgeCanvasPage() {
       } else if (searchTerms.length > 0) {
         return matchesSearchTerms;
       }
-      // 検索語もフィルタータグも空の場合は、最初のif文で早期リターンする
       return false;
     });
 
@@ -803,7 +781,7 @@ export default function KnowledgeCanvasPage() {
     return nodes.find(n => n.id === editingNodeId);
   }, [editingNodeId, nodes]);
 
-  const handleCreateEditDialogClose = () => {
+  const handleCreateEditDialogClose = useCallback(() => {
     setIsNoteDialogOpen(false);
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
@@ -812,7 +790,7 @@ export default function KnowledgeCanvasPage() {
     setCurrentEditData({ title: '', content: '', tags: [] });
     setTagInputValue('');
     setIsTagSelectorOpen(false);
-  };
+  }, []);
 
   const handleAddTagToDialog = () => {
     const newTag = tagInputValue.trim();
@@ -990,15 +968,9 @@ export default function KnowledgeCanvasPage() {
   const handleConfirmDelete = async () => {
     try {
       for (const nodeId of selectedItemsForDeletion.nodes) {
-        // If it's a file node with a filePath, consider deleting the local file
         const nodeToDelete = nodes.find(n => n.id === nodeId);
         if (nodeToDelete && nodeToDelete.type === 'file' && nodeToDelete.filePath && window.electronAPI) {
-          // You might want to add a specific electronAPI for deleting local files
-          // For now, we'll just delete the DB record.
-          // To delete the file: await window.electronAPI.deleteLocalFile(nodeToDelete.filePath);
-          // This would require a new IPC handler in main.js:
-          // ipcMain.handle('file:deleteLocal', async (event, filePath) => { try { fs.unlinkSync(filePath); return true; } catch (e) { return false; } });
-          // And exposed in preload.js
+          // No file deletion logic
         }
         if (window.electronAPI) {
           await window.electronAPI.deleteNode(nodeId);
@@ -1032,8 +1004,91 @@ export default function KnowledgeCanvasPage() {
     }
   };
 
+  // --- Keyboard Shortcuts Effect ---
+  useEffect(() => {
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+        const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+
+        const activeElement = document.activeElement;
+        const isTypingInProtectedInput = 
+            activeElement && 
+            (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') &&
+            !((activeElement as HTMLElement).id === 'toolbar-search-input' && event.key.toLowerCase() === 'f' && isCtrlOrCmd); // Allow Ctrl+F for search input itself
+        
+        if (isTypingInProtectedInput && !(isCtrlOrCmd && ['c', 'v', 'x', 'a', 'z', 'y'].includes(event.key.toLowerCase())) ) {
+           if (isCtrlOrCmd && ['n', 'l', 'd', 'u'].includes(event.key.toLowerCase())) {
+               // Block specific app shortcuts if typing in general inputs/textareas
+           } else {
+                return; 
+           }
+        }
+
+        if (isCtrlOrCmd) {
+            switch (event.key.toLowerCase()) {
+                case 'n':
+                    event.preventDefault();
+                    handleCreateNote();
+                    break;
+                case 'l':
+                    event.preventDefault();
+                    handleToggleLinkMode();
+                    break;
+                case 'd':
+                    event.preventDefault();
+                    handleToggleDeleteMode();
+                    break;
+                case 'u':
+                    event.preventDefault();
+                    shortcutFileInputRef.current?.click();
+                    break;
+                case 'f':
+                    event.preventDefault();
+                    const searchInput = document.getElementById('toolbar-search-input') as HTMLInputElement | null;
+                    searchInput?.focus();
+                    searchInput?.select(); // Optionally select existing text
+                    break;
+            }
+        } else if (event.key === 'Escape') {
+             if (isNoteDialogOpen || isEditDialogOpen) {
+                event.preventDefault();
+                handleCreateEditDialogClose();
+            } else if (isLinkingMode || isDeleteMode) {
+                event.preventDefault();
+                setIsLinkingMode(false);
+                setIsDeleteMode(false);
+                setSelectedNodesForLinking([]);
+                setSelectedItemsForDeletion({ nodes: [], links: [] });
+                toast({ title: "Mode Deactivated", description: "Returned to select mode."});
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+        window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [
+    handleCreateNote, 
+    handleToggleLinkMode, 
+    handleToggleDeleteMode,
+    isNoteDialogOpen,
+    isEditDialogOpen,
+    isLinkingMode,
+    isDeleteMode,
+    handleCreateEditDialogClose,
+    toast 
+  ]);
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+      <input
+          type="file"
+          ref={shortcutFileInputRef}
+          onChange={handleFileUpload}
+          className="hidden"
+          multiple
+          accept=".pdf,.docx,.txt,.jpg,.jpeg,.png"
+      />
       <Toolbar
         onFileUpload={handleFileUpload}
         onCreateNote={handleCreateNote}
@@ -1174,7 +1229,7 @@ export default function KnowledgeCanvasPage() {
                         variant="outline"
                         size="sm"
                         className="ml-2 h-7 px-2 py-1"
-                        onClick={async () => { // Make async
+                        onClick={async () => {
                             if (currentEditingNodeDetails?.filePath && window.electronAPI) {
                                 try {
                                     await window.electronAPI.openLocalFile(currentEditingNodeDetails.filePath);

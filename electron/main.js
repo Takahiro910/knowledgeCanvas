@@ -2,24 +2,66 @@
 const { app, BrowserWindow, dialog, Menu, ipcMain, shell } = require('electron'); // Add shell
 const path = require('path');
 const url = require('url');
-const fs = require('fs'); // Add fs
+const fs = require('fs'); // Already present
 const db = require('./database');
 
 // isDevの代わりにapp.isPackagedを使用
 const isDev = !app.isPackaged;
 
-// Directory for storing uploaded files
-// const uploadsPath = path.join(app.getPath('userData'), 'user_uploads');
-// if (!fs.existsSync(uploadsPath)) {
-//   fs.mkdirSync(uploadsPath, { recursive: true });
-// }
+// --- Window State Management ---
+const SETTINGS_FILE_NAME = 'window-settings.json';
+// settingsPath will be initialized in app.whenReady once app.getPath is available
+let settingsPath;
+const DEFAULT_WIDTH = 1200;
+const DEFAULT_HEIGHT = 800;
+
+function loadWindowSettings() {
+    try {
+        if (fs.existsSync(settingsPath)) {
+            const settingsData = fs.readFileSync(settingsPath, 'utf-8');
+            const settings = JSON.parse(settingsData);
+            if (settings && typeof settings.width === 'number' && typeof settings.height === 'number') {
+                // Basic validation for sensible dimensions (optional, but good practice)
+                if (settings.width >= 300 && settings.height >= 200) {
+                    return { width: settings.width, height: settings.height };
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load window settings, using defaults:', error);
+    }
+    return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+}
+
+function saveWindowSettings() {
+    if (mainWindow) { // Ensure mainWindow exists
+        try {
+            const bounds = mainWindow.getBounds();
+            const settings = {
+                width: bounds.width,
+                height: bounds.height
+            };
+            if (settingsPath) { // Ensure settingsPath is initialized
+                fs.writeFileSync(settingsPath, JSON.stringify(settings), 'utf-8');
+                // console.log('Window settings saved:', settings); // Optional: for debugging
+            }
+        } catch (error) {
+            console.error('Failed to save window settings:', error);
+        }
+    }
+}
+// --- End Window State Management ---
+
 
 let mainWindow;
 
 function createWindow() {
+  // Load window settings before creating the window
+  const { width, height } = loadWindowSettings();
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: width, // Use loaded or default width
+    height: height, // Use loaded or default height
     title: 'Knowledge Canvas',
     webPreferences: {
       nodeIntegration: false,
@@ -29,6 +71,24 @@ function createWindow() {
     },
     icon: path.join(__dirname, isDev ? '../public/favicon.ico' : '../dist/favicon.ico')
   });
+
+  // Save window state on resize and close
+  mainWindow.on('resized', saveWindowSettings);
+  mainWindow.on('moved', saveWindowSettings); // Also save if position is desired in the future, for size only this is not strictly needed but good for consistency
+  
+  // The 'close' event is a good place for a final save.
+  // However, 'resized' and 'moved' should cover most cases.
+  // For a more robust save on exit, especially if the window might be closed by app.quit(),
+  // consider also saving in app.on('before-quit', saveWindowSettings);
+  mainWindow.on('close', () => {
+    saveWindowSettings(); // Ensure final state is saved
+    // mainWindow will be nullified after this by Electron or in 'closed' event
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null; // Dereference the window object
+  });
+
 
   const startUrl = isDev
     ? 'http://localhost:9002'
@@ -104,11 +164,10 @@ function setupIpcHandlers() {
     return await db.addLink(link);
   });
   ipcMain.handle('db:updateNodePosition', async (event, { id, position }) => {
-    // Ensure position is stringified if it's not already (it seems it is from page.tsx)
     return await db.updateNodePosition(id, typeof position === 'string' ? position : JSON.stringify(position));
   });
   ipcMain.handle('db:updateNodeData', async (event, { id, data }) => {
-    return await db.updateNodeData(id, data); // data should be an object, database.js will stringify
+    return await db.updateNodeData(id, data);
   });
   ipcMain.handle('db:deleteNode', async (event, id) => {
       await db.deleteLinksByNodeId(id);
@@ -134,25 +193,8 @@ function setupIpcHandlers() {
       return canceled ? null : filePath;
   });
 
-  // New IPC Handlers for local file operations
-  // ipcMain.handle('file:saveLocal', async (event, fileName, fileDataBuffer) => {
-  //   try {
-  //     const filePath = path.join(uploadsPath, fileName);
-  //     // Ensure the directory exists (it should from app startup)
-  //     if (!fs.existsSync(uploadsPath)) {
-  //       fs.mkdirSync(uploadsPath, { recursive: true });
-  //     }
-  //     fs.writeFileSync(filePath, Buffer.from(fileDataBuffer));
-  //     return filePath;
-  //   } catch (error) {
-  //     console.error('Failed to save file locally:', error);
-  //     throw error;
-  //   }
-  // });
-
   ipcMain.handle('file:openLocal', async (event, filePath) => {
     try {
-      // Check if file exists before attempting to open
       if (!fs.existsSync(filePath)) {
         dialog.showErrorBox('File Not Found', `The file at ${filePath} could not be found.`);
         return false;
@@ -165,18 +207,16 @@ function setupIpcHandlers() {
       return false;
     }
   });
-
-  // ipcMain.handle('file:getUploadsDir', () => {
-  //   return uploadsPath;
-  // });
 }
 
 
 app.whenReady().then(async () => {
+  // Initialize settingsPath here, as app.getPath('userData') is now available
+  settingsPath = path.join(app.getPath('userData'), SETTINGS_FILE_NAME);
+
   try {
     await db.initDatabase();
     console.log('Database initialized successfully. Path:', db.dbPath);
-    // console.log('Uploads directory:', uploadsPath); // Log uploads path
   } catch (error) {
     console.error('Failed to initialize database:', error);
     dialog.showErrorBox('Database Error', `Failed to initialize database: ${error.message}`);
@@ -192,6 +232,21 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on('before-quit', () => {
+  // This is a good place for a final save attempt,
+  // especially if the app is quit by means other than closing the window directly (e.g., Cmd+Q or system shutdown)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+      saveWindowSettings();
+  }
+});
+
 app.on('window-all-closed', function () {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    // Before quitting, ensure settings are saved if mainWindow reference might still be valid.
+    // However, the 'close' event on the window itself is usually sufficient.
+    // if (mainWindow) { // This check might be problematic if mainWindow is already nulled by 'closed' event
+    //   saveWindowSettings();
+    // }
+    app.quit();
+  }
 });
