@@ -16,7 +16,7 @@ import { Toaster } from "@/components/ui/toaster";
 // });
 
 export const metadata: Metadata = {
-  title: 'Knowledge Canvas',
+  title: 'Canvas',
   description: 'Visually manage and link your knowledge assets.',
 };
 

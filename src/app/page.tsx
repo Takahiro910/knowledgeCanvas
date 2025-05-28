@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input"; //
 import { Textarea } from "@/components/ui/textarea"; //
 import { Label } from "@/components/ui/label"; //
 import { Badge } from '@/components/ui/badge'; //
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'; //
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { XIcon, PlusCircleIcon, CheckIcon, FileIcon, Search, Link as LinkIconLucide } from 'lucide-react';
 import { cn } from '@/lib/utils'; //
 import { v4 as uuidv4 } from 'uuid';
@@ -66,8 +66,8 @@ const getFileTypeFromFileName = (fileName: string): AppFileType => {
   if (extension === 'docx' || extension === 'doc') return 'DOCX';
   if (extension === 'txt') return 'TXT';
   if (['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(extension || '')) return 'IMAGE';
-  if (['xlsx', 'xls', 'xlsm'].includes(extension || '')) return 'EXCEL'; // ★ 追加
-  if (['pptx', 'ppt'].includes(extension || '')) return 'POWERPOINT'; // ★ 追加
+  if (['xlsx', 'xls', 'xlsm'].includes(extension || '')) return 'EXCEL';
+  if (['pptx', 'ppt'].includes(extension || '')) return 'POWERPOINT';
   return 'OTHER';
 };
 
@@ -126,10 +126,10 @@ export default function KnowledgeCanvasPage() {
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  // currentEditData.content will hold description for link nodes
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
-  const [tagInputValue, setTagInputValue] = useState('');
-  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  
+  // const [tagInputValue, setTagInputValue] = useState('');
+  // const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [tagSearchValue, setTagSearchValue] = useState('');
   const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false);
 
@@ -145,6 +145,14 @@ export default function KnowledgeCanvasPage() {
 
   const { toast } = useToast();
   const shortcutFileInputRef = useRef<HTMLInputElement>(null);
+  const [tagInputValue, setTagInputValue] = useState('');
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false); // 既存のPopover用
+
+  // ★ 新しいタグサジェスト機能のためのState
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [showTagSuggestionsDropdown, setShowTagSuggestionsDropdown] = useState(false);
+  const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(-1);
+  const tagInputRef = useRef<HTMLInputElement>(null); // タグ入力フィールドの参照
 
 
   useEffect(() => {
@@ -156,6 +164,82 @@ export default function KnowledgeCanvasPage() {
   const isFirstRenderForLinkModeToast = useRef(true);
   const previousLinksLengthRef = useRef(links.length);
   const isInitialRenderForAutoLayoutEffect = useRef(true);
+
+    // ★ タグ入力値が変更された時にサジェストを更新するuseEffect
+  useEffect(() => {
+    if (tagInputValue.trim() === '') {
+      setTagSuggestions([]);
+      setShowTagSuggestionsDropdown(false); // 入力が空ならサジェスト非表示
+      return;
+    }
+    const lowerInput = tagInputValue.toLowerCase();
+    // 現在編集中のノート/ノードにまだ追加されていないタグのみを候補とする
+    const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
+    
+    const filtered = allTags.filter(tag =>
+      tag.toLowerCase().includes(lowerInput) &&
+      !currentDialogTags.includes(tag) // 既にダイアログで追加済みのタグは候補から除外
+    );
+    setTagSuggestions(filtered);
+    setActiveTagSuggestionIndex(-1); // 入力変更時はアクティブサジェストをリセット
+    setShowTagSuggestionsDropdown(filtered.length > 0); // 候補があれば表示
+  }, [tagInputValue, allTags, editingNodeId, currentEditData.tags, currentNote.tags, isNoteDialogOpen, isEditDialogOpen]);
+
+  // ★ サジェストからタグを追加する関数
+  const handleAddTagFromSuggestion = (suggestedTag: string) => {
+    const tagToAdd = suggestedTag; // サジェストされたタグ名をそのまま使用
+
+    if (isNoteDialogOpen) {
+      if (!currentNote.tags.includes(tagToAdd)) {
+        setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+      }
+    } else if (isEditDialogOpen) {
+      if (!currentEditData.tags.includes(tagToAdd)) {
+        setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+      }
+    }
+    setTagInputValue(''); // 入力フィールドをクリア
+    setShowTagSuggestionsDropdown(false); // サジェストを非表示
+    setActiveTagSuggestionIndex(-1);
+    tagInputRef.current?.focus(); // 入力フィールドにフォーカスを戻す
+  };
+
+  // ★ Enterキーでタグを追加する処理 (サジェスト選択も含む)
+  const handleConfirmTagInput = () => {
+    if (activeTagSuggestionIndex >= 0 && tagSuggestions[activeTagSuggestionIndex]) {
+      // アクティブなサジェストがある場合はそれを追加
+      handleAddTagFromSuggestion(tagSuggestions[activeTagSuggestionIndex]);
+    } else {
+      // アクティブなサジェストがない場合は、入力値を新しいタグとして（または既存タグとして）追加
+      const newTagValue = tagInputValue.trim();
+      if (!newTagValue) {
+        setShowTagSuggestionsDropdown(false);
+        return;
+      }
+
+      let tagToAdd = newTagValue;
+      // 既存タグと大文字・小文字を無視して一致するか確認
+      const existingTagMatch = allTags.find(t => t.toLowerCase() === newTagValue.toLowerCase());
+      if (existingTagMatch) {
+        tagToAdd = existingTagMatch; // 一致する場合は既存の正式なタグ名を使用
+      }
+      
+      // 現在のダイアログのタグリストに追加 (重複チェック含む)
+      if (isNoteDialogOpen) {
+        if (!currentNote.tags.includes(tagToAdd)) {
+          setCurrentNote(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+        }
+      } else if (isEditDialogOpen) {
+        if (!currentEditData.tags.includes(tagToAdd)) {
+          setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+        }
+      }
+      setTagInputValue('');
+      setShowTagSuggestionsDropdown(false);
+      setActiveTagSuggestionIndex(-1);
+    }
+    tagInputRef.current?.focus();
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -171,7 +255,7 @@ export default function KnowledgeCanvasPage() {
               id: dbNode.id,
               type: dbNode.type,
               title: metaData.title || '',
-              content: metaData.content, // Will load description for link nodes
+              content: metaData.content, 
               fileType: metaData.fileType,
               filePath: metaData.filePath,
               url: metaData.url,
@@ -224,7 +308,7 @@ export default function KnowledgeCanvasPage() {
   const internalAddNode = useCallback(async (
     type: NodeType,
     title: string,
-    nodeSpecificContent?: string, // For notes: content; for links: description
+    nodeSpecificContent?: string, 
     fileType?: AppFileType,
     filePath?: string,
     url?: string,
@@ -251,7 +335,7 @@ export default function KnowledgeCanvasPage() {
       id: uuidv4(),
       type,
       title,
-      content: nodeSpecificContent || (type === 'link' ? "" : undefined), // Default empty description for links
+      content: nodeSpecificContent || (type === 'link' ? "" : undefined), 
       fileType,
       filePath,
       url,
@@ -259,12 +343,12 @@ export default function KnowledgeCanvasPage() {
       x: Math.max(0, worldX),
       y: Math.max(0, worldY),
       width: width || 256,
-      height: height || (type === 'note' ? (nodeSpecificContent && nodeSpecificContent.length > 50 ? 200 : 160) : (type === 'link' ? 160 : 160)), // Adjusted default height for links to accommodate description
+      height: height || (type === 'note' ? (nodeSpecificContent && nodeSpecificContent.length > 50 ? 200 : 160) : (type === 'link' ? 160 : 160)), 
     };
 
     const nodeDataForDB: NodeMetaData = {
         title: newNodeForUI.title,
-        content: newNodeForUI.content, // This will save the description for links
+        content: newNodeForUI.content, 
         fileType: newNodeForUI.fileType,
         filePath: newNodeForUI.filePath,
         url: newNodeForUI.url,
@@ -320,8 +404,7 @@ export default function KnowledgeCanvasPage() {
 
 
     try {
-      // Pass empty string for content (description) initially
-      await internalAddNode('link', nodeTitle, "", 'URL', undefined, url, [], dropX, dropY, 256, 160); // Adjusted default height
+      await internalAddNode('link', nodeTitle, "", 'URL', undefined, url, [], dropX, dropY, 256, 160); 
     } catch (error) {
       console.error("Error processing dropped URL:", error);
       toast({ title: "Error Processing URL", description: `Failed to create link node for "${url}".`, variant: "destructive" });
@@ -350,7 +433,7 @@ export default function KnowledgeCanvasPage() {
             } else if (item.kind === 'string' && (item.type === 'text/uri-list' || item.type === 'text/plain')) {
                 potentialUrl = await new Promise<string | null>((resolve) => item.getAsString(resolve));
                 if (potentialUrl && potentialUrl.startsWith('http')) {
-                    break;
+                    break; 
                 } else {
                     potentialUrl = null;
                 }
@@ -365,13 +448,13 @@ export default function KnowledgeCanvasPage() {
         for (const file of files) {
           const nodeTypeForFile: NodeType = 'file';
           const appFileType = getFileTypeFromFileName(file.name);
-          const originalFilePath = (file as any).path;
+          const originalFilePath = (file as any).path; 
 
           if (!originalFilePath) {
             toast({ title: "Error", description: `Could not get path for "${file.name}".`, variant: "destructive" });
             continue;
           }
-
+          
           const isDuplicatePath = nodes.some(
             (node) => node.filePath === originalFilePath
           );
@@ -403,7 +486,7 @@ export default function KnowledgeCanvasPage() {
       await handleFilesDrop(Array.from(files));
     }
     if (event.target) {
-      event.target.value = "";
+      event.target.value = ""; 
     }
   }, [handleFilesDrop]);
 
@@ -442,12 +525,12 @@ export default function KnowledgeCanvasPage() {
     const nodeToEdit = nodes.find(n => n.id === nodeId);
     if (nodeToEdit) {
       setEditingNodeId(nodeId);
-      setCurrentEditData({
-        title: nodeToEdit.title,
-        content: nodeToEdit.content || '', // For links, this is description; for files, description; for notes, content
-        tags: nodeToEdit.tags || []
+      setCurrentEditData({ 
+        title: nodeToEdit.title, 
+        content: nodeToEdit.content || '', 
+        tags: nodeToEdit.tags || [] 
       });
-      setTagInputValue('');
+      setTagInputValue(''); 
       setIsEditDialogOpen(true);
       setIsNoteDialogOpen(false);
     }
@@ -460,7 +543,7 @@ export default function KnowledgeCanvasPage() {
           toast({ title: "Error", description: "Node not found for content update.", variant: "destructive" });
           return;
       }
-      if (nodeToUpdate.type !== 'note') { // Only notes have direct inline content update from NodeItem for now
+      if (nodeToUpdate.type !== 'note') { 
           toast({ title: "Info", description: "Edit file/link descriptions via double-click.", variant: "default" });
           return;
       }
@@ -475,7 +558,7 @@ export default function KnowledgeCanvasPage() {
           url: nodeToUpdate.url,
           tags: nodeToUpdate.tags,
           width: nodeToUpdate.width,
-          height: newHeight,
+          height: newHeight, 
       };
 
       try {
@@ -507,7 +590,7 @@ export default function KnowledgeCanvasPage() {
         setEditingNodeId(null);
         return;
     }
-
+    
     const isDuplicateTitle = nodes.some(
       (node) => node.id !== editingNodeId && node.title.toLowerCase() === currentEditData.title.trim().toLowerCase()
     );
@@ -521,20 +604,19 @@ export default function KnowledgeCanvasPage() {
       return;
     }
 
-    // URL is not editable from this dialog for link nodes
-    const newHeight = (nodeBeingEdited.type === 'note' || nodeBeingEdited.type === 'link') // Link nodes might also grow with description
+    const newHeight = (nodeBeingEdited.type === 'note' || nodeBeingEdited.type === 'link') 
         ? (currentEditData.content && currentEditData.content.length > 50 ? 200 : 160)
         : nodeBeingEdited.height;
 
     const dataToUpdateInDB: Partial<NodeMetaData> = {
         title: currentEditData.title,
-        content: currentEditData.content, // This is description for link/file, content for note
+        content: currentEditData.content, 
         fileType: nodeBeingEdited.fileType,
         filePath: nodeBeingEdited.filePath,
-        url: nodeBeingEdited.url, // URL is not changed here
+        url: nodeBeingEdited.url, 
         tags: currentEditData.tags,
-        width: nodeBeingEdited.width,
-        height: newHeight,
+        width: nodeBeingEdited.width, 
+        height: newHeight, 
     };
 
 
@@ -548,10 +630,9 @@ export default function KnowledgeCanvasPage() {
               ? {
                   ...n,
                   title: dataToUpdateInDB.title!,
-                  content: dataToUpdateInDB.content, // Updates description for link/file or content for note
-                  // url: n.url, // URL remains unchanged from the node's original URL
+                  content: dataToUpdateInDB.content, 
                   tags: dataToUpdateInDB.tags!,
-                  height: newHeight,
+                  height: newHeight, 
                 }
               : n
           )
@@ -564,7 +645,7 @@ export default function KnowledgeCanvasPage() {
     setIsEditDialogOpen(false);
     setEditingNodeId(null);
   };
-
+  
   const handleToggleLinkMode = useCallback(() => {
     setIsLinkingMode(prevIsLinkingMode => !prevIsLinkingMode);
     setSelectedNodesForLinking([]);
@@ -609,11 +690,11 @@ export default function KnowledgeCanvasPage() {
 
   const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
     if (didPanRef.current || (event.target as HTMLElement).closest('[data-dragging="true"]')) {
-      didPanRef.current = false;
+      didPanRef.current = false; 
       return;
     }
     if ((event.target as HTMLElement).closest('[data-open-file-button="true"]')) {
-        event.stopPropagation();
+        event.stopPropagation(); 
         return;
     }
     event.stopPropagation();
@@ -653,7 +734,7 @@ export default function KnowledgeCanvasPage() {
             });
           }
           setLinks((prevLinks) => [...prevLinks, newLinkForUI]);
-          return [];
+          return []; 
         }
         return newSelected;
       });
@@ -683,7 +764,7 @@ export default function KnowledgeCanvasPage() {
       setSelectedNodesForLinking([]);
     }
   };
-
+  
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     if (!canvasBounds || isLinkingMode || isPanning || isEditDialogOpen || isNoteDialogOpen) return;
@@ -691,11 +772,11 @@ export default function KnowledgeCanvasPage() {
     let target = event.target as HTMLElement;
     while (target && target !== event.currentTarget) {
         if (target.closest('[data-node-item="true"]')) {
-            return;
+            return; 
         }
         target = target.parentElement as HTMLElement;
     }
-
+    
     const viewX = event.clientX - canvasBounds.left;
     const viewY = event.clientY - canvasBounds.top;
 
@@ -727,7 +808,7 @@ export default function KnowledgeCanvasPage() {
     let targetElement = event.target as HTMLElement;
     while (targetElement && targetElement !== event.currentTarget) {
         if (targetElement.closest('[data-node-item="true"]')) {
-            return;
+            return; 
         }
         targetElement = targetElement.parentElement as HTMLElement;
     }
@@ -744,7 +825,7 @@ export default function KnowledgeCanvasPage() {
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       if (!isPanning || !panStartCoordsRef.current) return;
-      didPanRef.current = true;
+      didPanRef.current = true; 
       const newX = event.clientX - panStartCoordsRef.current.x;
       const newY = event.clientY - panStartCoordsRef.current.y;
       setCanvasOffset({ x: newX, y: newY });
@@ -785,7 +866,7 @@ export default function KnowledgeCanvasPage() {
 
     const mouseXInView = event.clientX - canvasBounds.left;
     const mouseYInView = event.clientY - canvasBounds.top;
-
+    
     const worldXBeforeZoom = (mouseXInView - canvasOffset.x) / zoomLevel;
     const worldYBeforeZoom = (mouseYInView - canvasOffset.y) / zoomLevel;
 
@@ -815,12 +896,12 @@ export default function KnowledgeCanvasPage() {
       if (searchTerms.length > 0) {
         matchesSearchTerms = searchTerms.every(term => {
           const titleMatch = node.title.toLowerCase().includes(term);
-          const contentMatch = (node.type === 'note' || node.type === 'file' || node.type === 'link') && node.content?.toLowerCase().includes(term); // Include link description
+          const contentMatch = (node.type === 'note' || node.type === 'file' || node.type === 'link') && node.content?.toLowerCase().includes(term); 
           const tagMatch = node.tags && node.tags.some(tag => tag.toLowerCase().includes(term));
           return titleMatch || contentMatch || tagMatch;
         });
       }
-
+      
       if (selectedFilterTags.length > 0 && searchTerms.length > 0) {
         return matchesSelectedTags && matchesSearchTerms;
       } else if (selectedFilterTags.length > 0) {
@@ -828,7 +909,7 @@ export default function KnowledgeCanvasPage() {
       } else if (searchTerms.length > 0) {
         return matchesSearchTerms;
       }
-      return false;
+      return false; 
     });
 
 
@@ -844,17 +925,17 @@ export default function KnowledgeCanvasPage() {
     const collectedLinkIds = new Set<string>();
 
     matchedInitialNodes.forEach(startNode => {
-      const visitedNodesInPath = new Set<string>();
+      const visitedNodesInPath = new Set<string>(); 
       traverseGraph(startNode.id, 0, searchDepth, nodes, links, visitedNodesInPath, collectedNodesMap, collectedLinkIds);
     });
 
     const displayNodes = Array.from(collectedNodesMap.values());
-    const displayLinks = links.filter(link =>
-        collectedLinkIds.has(link.id) &&
-        collectedNodesMap.has(link.sourceNodeId) &&
+    const displayLinks = links.filter(link => 
+        collectedLinkIds.has(link.id) && 
+        collectedNodesMap.has(link.sourceNodeId) && 
         collectedNodesMap.has(link.targetNodeId)
     );
-
+    
     return { displayNodes, displayLinks };
   }, [nodes, links, searchTerm, searchDepth, selectedFilterTags]);
 
@@ -873,7 +954,8 @@ export default function KnowledgeCanvasPage() {
     setTagInputValue('');
     setIsTagSelectorOpen(false);
   }, []);
-
+  
+  // ★ 修正: handleAddTagToDialog の中でタグ追加後にポップオーバーを閉じる
   const handleAddTagToDialog = () => {
     const newTag = tagInputValue.trim();
     if (!newTag) return;
@@ -888,6 +970,7 @@ export default function KnowledgeCanvasPage() {
       }
     }
     setTagInputValue('');
+    setIsTagSelectorOpen(false); // ポップオーバーを閉じる
   };
 
   const handleRemoveTagFromDialog = (tagToRemove: string) => {
@@ -897,7 +980,8 @@ export default function KnowledgeCanvasPage() {
       setCurrentEditData(prev => ({ ...prev, tags: prev.tags.filter(tag => tag !== tagToRemove) }));
     }
   };
-
+  
+  // 既存のPopover（全タグリスト）からタグを選択する関数
   const handleSelectTagFromList = (tagToAdd: string) => {
     if (isNoteDialogOpen) {
       if (!currentNote.tags.includes(tagToAdd)) {
@@ -908,6 +992,7 @@ export default function KnowledgeCanvasPage() {
         setCurrentEditData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
       }
     }
+    // この関数は既存のPopoverから呼ばれるため、ここでは入力フィールドのクリアやPopoverのクローズはしない
   };
 
  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
@@ -928,8 +1013,8 @@ export default function KnowledgeCanvasPage() {
 
     const DEFAULT_NODE_WIDTH = 256;
     const DEFAULT_NODE_HEIGHT = 160;
-    const HORIZONTAL_SPACING = 100;
-    const VERTICAL_SPACING = 60;
+    const HORIZONTAL_SPACING = 100; 
+    const VERTICAL_SPACING = 60; 
     const PAGE_MARGIN_X = 50;
     const PAGE_MARGIN_Y = 50;
 
@@ -965,7 +1050,7 @@ export default function KnowledgeCanvasPage() {
       });
       queue = nextQueue;
     }
-
+    
     const newPositionsMap = new Map<string, { x: number, y: number }>();
 
     layers.forEach((layer, layerIndex) => {
@@ -979,13 +1064,13 @@ export default function KnowledgeCanvasPage() {
         }
       });
     });
-
+    
     const positionedNodeIds = new Set(layers.flat());
     let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
     if (layers.some(layer => layer.length > 0)) {
         lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING;
     }
-
+    
     let unPositionY = PAGE_MARGIN_Y;
     layoutNodes.forEach(node => {
       if (!positionedNodeIds.has(node.id)) {
@@ -1008,7 +1093,7 @@ export default function KnowledgeCanvasPage() {
      toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
     }
   }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast]);
-
+  
   const handleAutoLayoutRef = useRef(handleAutoLayout);
 
   useEffect(() => {
@@ -1020,7 +1105,7 @@ export default function KnowledgeCanvasPage() {
       isInitialRenderForAutoLayoutEffect.current = false;
       return;
     }
-    handleAutoLayoutRef.current(true);
+    handleAutoLayoutRef.current(true); 
   }, [searchTerm, selectedFilterTags, searchDepth]);
 
   const handleDepthChange = useCallback((depthArr: number[]) => {
@@ -1030,7 +1115,7 @@ export default function KnowledgeCanvasPage() {
   const handleApplyAutoLayout = useCallback(() => {
     handleAutoLayout(false);
   }, [handleAutoLayout]);
-
+  
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Delete' && isDeleteMode) {
@@ -1086,13 +1171,12 @@ export default function KnowledgeCanvasPage() {
     }
   };
 
-  // --- Keyboard Shortcuts Effect ---
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
         const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
         const activeElement = document.activeElement;
-        const isTypingInProtectedInput =
+        const isTypingInProtectedInput = 
             activeElement &&
             (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') &&
             !((activeElement as HTMLElement).id === 'toolbar-search-input' && event.key.toLowerCase() === 'f' && isCtrlOrCmd);
@@ -1101,7 +1185,7 @@ export default function KnowledgeCanvasPage() {
            if (isCtrlOrCmd && ['n', 'l', 'd', 'u'].includes(event.key.toLowerCase())) {
                // Block specific app shortcuts if typing in general inputs/textareas
            } else {
-                return;
+                return; 
            }
         }
 
@@ -1128,7 +1212,7 @@ export default function KnowledgeCanvasPage() {
                     const searchInput = document.getElementById('toolbar-search-input') as HTMLInputElement | null;
                     searchInput?.focus();
                     searchInput?.select();
-                    break;
+                    break;    
             }
         } else if (event.key === 'Escape') {
              if (isNoteDialogOpen || isEditDialogOpen) {
@@ -1150,16 +1234,25 @@ export default function KnowledgeCanvasPage() {
         window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, [
-    handleCreateNote,
-    handleToggleLinkMode,
-    handleToggleDeleteMode,
-    isNoteDialogOpen,
-    isEditDialogOpen,
-    isLinkingMode,
-    isDeleteMode,
+    handleCreateNote, 
+    handleToggleLinkMode, 
+    handleToggleDeleteMode, 
+    isNoteDialogOpen, 
+    isEditDialogOpen, 
+    isLinkingMode, 
+    isDeleteMode, 
     handleCreateEditDialogClose,
     toast
   ]);
+
+  // ★ 修正: タグ候補リストのフィルタリングロジック
+  const displayedTagsInPopover = useMemo(() => {
+    const filterTerm = tagInputValue.trim().toLowerCase();
+    if (filterTerm === '') {
+      return allTags; // 入力が空なら全てのタグを表示（ボタンで開いた場合など）
+    }
+    return allTags.filter(tag => tag.toLowerCase().includes(filterTerm));
+  }, [allTags, tagInputValue]);
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -1169,7 +1262,7 @@ export default function KnowledgeCanvasPage() {
           onChange={handleFileUpload}
           className="hidden"
           multiple
-          accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.svg,.xlsx, .xlsm,.xls,.pptx,.ppt" // ★ 更新
+          accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.svg,.xlsx, .xlsm,.xls,.pptx,.ppt"
       />
       <Toolbar
         onFileUpload={handleFileUpload}
@@ -1207,7 +1300,7 @@ export default function KnowledgeCanvasPage() {
           onCanvasWheel={handleCanvasWheel}
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
-          onNodeContentUpdate={handleUpdateNodeContent}
+          onNodeContentUpdate={handleUpdateNodeContent} 
           onLinkClick={handleLinkClick}
         />
       </main>
@@ -1222,13 +1315,13 @@ export default function KnowledgeCanvasPage() {
                   ? `Edit Note: ${currentEditingNodeDetails?.title}`
                   : currentEditingNodeDetails?.type === 'file'
                     ? `Edit File Details: ${currentEditingNodeDetails?.title}`
-                    : `Edit Link Details: ${currentEditingNodeDetails?.title}` // Changed for link type
+                    : `Edit Link Details: ${currentEditingNodeDetails?.title}` 
                 : "Create New Note"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {editingNodeId
                 ? (currentEditingNodeDetails?.type === 'file' ? "Update the file description and tags."
-                  : currentEditingNodeDetails?.type === 'link' ? "Update the link title, description, and tags. The URL itself is not editable here." // Changed for link type
+                  : currentEditingNodeDetails?.type === 'link' ? "Update the link title, description, and tags. The URL itself is not editable here."
                   : "Update the details below.")
                 : "Enter a title, content (optional), and tags (optional) for your new note."}
             </AlertDialogDescription>
@@ -1284,12 +1377,11 @@ export default function KnowledgeCanvasPage() {
               </div>
             </div>
 
-            {/* Content/Description Textarea */}
             {(!editingNodeId || currentEditingNodeDetails?.type === 'note' || currentEditingNodeDetails?.type === 'file' || currentEditingNodeDetails?.type === 'link') && (
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="dialog-content" className="text-right pt-2">
                   {editingNodeId && (currentEditingNodeDetails?.type === 'file' || currentEditingNodeDetails?.type === 'link')
-                    ? "Description" // Use "Description" for file and link types when editing
+                    ? "Description" 
                     : "Content"}
                 </Label>
                 <Textarea
@@ -1303,14 +1395,13 @@ export default function KnowledgeCanvasPage() {
                   className="col-span-3 min-h-[100px]"
                   placeholder={
                     editingNodeId && currentEditingNodeDetails?.type === 'file' ? "Enter a description for this file..." :
-                    editingNodeId && currentEditingNodeDetails?.type === 'link' ? "Enter a description for this URL..." : // Placeholder for link description
+                    editingNodeId && currentEditingNodeDetails?.type === 'link' ? "Enter a description for this URL..." : 
                     "Type your note here..."
                   }
                 />
               </div>
             )}
 
-            {/* Display FilePath for File nodes */}
             {editingNodeId && currentEditingNodeDetails?.type === 'file' && currentEditingNodeDetails.filePath && (
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label className="text-right">File</Label>
@@ -1339,7 +1430,6 @@ export default function KnowledgeCanvasPage() {
               </div>
             )}
 
-            {/* Display URL for Link nodes (read-only in this context) */}
             {editingNodeId && currentEditingNodeDetails?.type === 'link' && (
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label className="text-right">URL</Label>
@@ -1362,29 +1452,72 @@ export default function KnowledgeCanvasPage() {
                 Tags
               </Label>
               <div className="col-span-3">
-                <div className="flex gap-2">
+                <div className="flex gap-2 relative"> {/* ★ 親要素に relative を設定 */}
                   <Input
+                    ref={tagInputRef} // ★ ref を設定
                     id="dialog-tags-input"
                     value={tagInputValue}
-                    onChange={(e) => setTagInputValue(e.target.value)}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setTagInputValue(newValue);
+                      // 入力があればサジェスト表示を試みる (useEffectが候補を更新)
+                      if (newValue.trim() !== "") {
+                        setShowTagSuggestionsDropdown(true);
+                      } else {
+                        setShowTagSuggestionsDropdown(false); // 空なら非表示
+                      }
+                    }}
+                    onFocus={() => {
+                      // フォーカス時、入力があればサジェスト表示
+                      if (tagInputValue.trim() !== "" && tagSuggestions.length > 0) {
+                         setShowTagSuggestionsDropdown(true);
+                      }
+                    }}
+                    onBlur={() => {
+                      // クリックイベントがサジェストアイテムで発生するのを待つために遅延させる
+                      setTimeout(() => {
+                        setShowTagSuggestionsDropdown(false);
+                        setActiveTagSuggestionIndex(-1);
+                      }, 150); // 150msの遅延
+                    }}
                     className="flex-grow"
-                    placeholder="Add new tag and press Enter"
+                    placeholder="Add new tag"
                     onKeyDown={(e) => {
+                      if (showTagSuggestionsDropdown && tagSuggestions.length > 0) {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setActiveTagSuggestionIndex(prev =>
+                            prev < tagSuggestions.length - 1 ? prev + 1 : 0
+                          );
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setActiveTagSuggestionIndex(prev =>
+                            prev > 0 ? prev - 1 : tagSuggestions.length - 1
+                          );
+                        }
+                      }
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        handleAddTagToDialog();
+                        handleConfirmTagInput();
+                      } else if (e.key === 'Escape') {
+                        setShowTagSuggestionsDropdown(false);
+                        setActiveTagSuggestionIndex(-1);
                       }
                     }}
                   />
+                  {/* ★ 修正: Popover の open と onOpenChange, および onClick */}
                   <Popover open={isTagSelectorOpen} onOpenChange={setIsTagSelectorOpen}>
                     <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" size="icon">
+                      <Button type="button" variant="outline" size="icon" onClick={() => {
+                        setIsTagSelectorOpen(prev => !prev);
+                        setShowTagSuggestionsDropdown(false); // 新しいサジェストとは排他的に
+                      }}>
                         <PlusCircleIcon className="h-4 w-4" />
-                        <span className="sr-only">Add existing tag</span>
+                        <span className="sr-only">Add existing tag from list</span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[200px] p-0">
-                      <div className="p-2 border-b">
+                       {<div className="p-2 border-b">
                         <Input
                           type="text"
                           placeholder="Search tags..."
@@ -1392,11 +1525,10 @@ export default function KnowledgeCanvasPage() {
                           onChange={(e) => setTagSearchValue(e.target.value)}
                           className="h-8"
                         />
-                      </div>
+                      </div>}
                       <div className="flex flex-col gap-1 p-1 max-h-48 overflow-y-auto">
                         {allTags.length > 0 ? (
                           allTags
-                            .filter(tag => tag.toLowerCase().includes(tagSearchValue.toLowerCase()))
                             .map(tag => {
                               const currentDialogTags = editingNodeId ? currentEditData.tags : currentNote.tags;
                               const isAlreadyAdded = currentDialogTags.includes(tag);
@@ -1411,8 +1543,9 @@ export default function KnowledgeCanvasPage() {
                                   )}
                                   onClick={() => {
                                     if (!isAlreadyAdded) {
-                                      handleSelectTagFromList(tag);
+                                      handleSelectTagFromList(tag); // 既存の関数でタグ追加
                                     }
+                                    // setIsTagSelectorOpen(false); // Popoverを閉じる
                                   }}
                                   disabled={isAlreadyAdded}
                                 >
@@ -1423,12 +1556,38 @@ export default function KnowledgeCanvasPage() {
                             })
                         ) : (
                           <p className="text-xs text-muted-foreground text-center p-2">
-                            {tagSearchValue ? 'No matching tags found.' : 'No existing tags to select.'}
+                            No existing tags.
                           </p>
                         )}
                       </div>
                     </PopoverContent>
                   </Popover>
+
+                  {/* ★ 新しいタグサジェストドロップダウンの描画 */}
+                  {showTagSuggestionsDropdown && tagSuggestions.length > 0 && (
+                    <div 
+                      className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto"
+                      style={{ width: tagInputRef.current?.offsetWidth }} // 入力フィールドの幅に合わせる
+                    >
+                      {tagSuggestions.map((tag, index) => (
+                        <button
+                          key={tag}
+                          type="button" // フォームの送信を防ぐ
+                          className={cn(
+                            "w-full text-left px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none",
+                            index === activeTagSuggestionIndex && "bg-accent text-accent-foreground"
+                          )}
+                          onClick={() => handleAddTagFromSuggestion(tag)}
+                          // onMouseDown を使うことで onBlur より先にイベントを処理し、リストが消えるのを防ぐ
+                          onMouseDown={(e) => e.preventDefault()} 
+                          onMouseEnter={() => setActiveTagSuggestionIndex(index)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(editingNodeId ? currentEditData.tags : currentNote.tags).map(tag => (
@@ -1460,24 +1619,24 @@ export default function KnowledgeCanvasPage() {
       </AlertDialog>
 
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete {selectedItemsForDeletion.nodes.length} node(s) and {selectedItemsForDeletion.links.length} link(s)? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete {selectedItemsForDeletion.nodes.length} node(s) and {selectedItemsForDeletion.links.length} link(s)? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleConfirmDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
     </div>
   );
 }

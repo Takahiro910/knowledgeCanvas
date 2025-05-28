@@ -1,5 +1,5 @@
 appId: com.knowledgecanvas.app
-productName: Knowledge Canvas
+productName: Canvas
 copyright: Copyright © ${author}
 npmRebuild: true # ネイティブモジュール再ビルドのため追加を推奨
 
