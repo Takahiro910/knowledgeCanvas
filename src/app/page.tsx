@@ -1026,18 +1026,15 @@ export default function KnowledgeCanvasPage() {
       outDegree.set(n.id, 0);
     });
 
-    linksToConsider.forEach(link => {
+      linksToConsider.forEach(link => {
       if (layoutNodesMap.has(link.sourceNodeId) && layoutNodesMap.has(link.targetNodeId)) {
         adj.get(link.sourceNodeId)!.push(link.targetNodeId);
-        revAdj.get(link.targetNodeId)!.push(link.sourceNodeId);
+        revAdj.get(link.targetNodeId)!.push(link.sourceNodeId); // 逆向きのリンクも保存
         inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
         outDegree.set(link.sourceNodeId, (outDegree.get(link.sourceNodeId) || 0) + 1);
       }
     });
 
-    // --- Calculate Longest Path To Sink (layerRTL) ---
-    
-    // 1. Get standard topological sort (sources first)
     const topoOrder: string[] = [];
     const qForTopo = Array.from(layoutNodesMap.values())
                            .filter(n => (inDegree.get(n.id) || 0) === 0)
@@ -1048,7 +1045,7 @@ export default function KnowledgeCanvasPage() {
         const u_id = qForTopo[headTopo++];
         topoOrder.push(u_id);
         (adj.get(u_id) || []).forEach(v_id => {
-            if (layoutNodesMap.has(v_id)) { // Process only nodes in the current layout
+            if (layoutNodesMap.has(v_id)) {
                 tempInDegree.set(v_id, (tempInDegree.get(v_id) || 1) - 1);
                 if ((tempInDegree.get(v_id) || 0) === 0) {
                     qForTopo.push(v_id);
@@ -1057,24 +1054,22 @@ export default function KnowledgeCanvasPage() {
         });
     }
 
-    // 2. Calculate layerRTL by iterating in reverse topological order
     const layerRTL = new Map<string, number>();
-    layoutNodesMap.forEach(n => layerRTL.set(n.id, 0)); // Initialize
+    layoutNodesMap.forEach(n => layerRTL.set(n.id, 0));
 
     for (let i = topoOrder.length - 1; i >= 0; i--) {
         const u_id = topoOrder[i];
         const nodeOutDegree = (outDegree.get(u_id) || 0);
 
-        if (nodeOutDegree === 0) { // Is a sink node
+        if (nodeOutDegree === 0) {
             layerRTL.set(u_id, 0);
         } else {
             let maxChildLayerRTL = -1;
-            (adj.get(u_id) || []).forEach(v_id => { // For each child v_id of u_id
-                 if (layoutNodesMap.has(v_id)) { // Check if child is in current consideration
+            (adj.get(u_id) || []).forEach(v_id => {
+                 if (layoutNodesMap.has(v_id)) {
                     maxChildLayerRTL = Math.max(maxChildLayerRTL, layerRTL.get(v_id) || 0);
                  }
             });
-             // if maxChildLayerRTL remains -1 (e.g. node had children but none are in layoutNodesMap), treat as sink.
             layerRTL.set(u_id, (maxChildLayerRTL === -1 ? -1 : maxChildLayerRTL) + 1);
         }
     }
@@ -1094,54 +1089,163 @@ export default function KnowledgeCanvasPage() {
     const nodesByVisualColumn = new Map<number, string[]>();
     let effectiveMaxVisualColumn = 0;
 
-    layoutNodesMap.forEach(node => {
-        const rtl = layerRTL.get(node.id) || 0;
-        // visualColumn index makes sources (maxLayerRTL) appear on left (column 0)
-        // and sinks (layerRTL 0) appear on right (column maxLayerRTL)
-        const visualColumnIndex = maxLayerRTL - rtl; 
-        
-        if (!nodesByVisualColumn.has(visualColumnIndex)) {
-            nodesByVisualColumn.set(visualColumnIndex, []);
-        }
-        nodesByVisualColumn.get(visualColumnIndex)!.push(node.id);
-        if (visualColumnIndex > effectiveMaxVisualColumn) {
-            effectiveMaxVisualColumn = visualColumnIndex;
-        }
-    });
-    
-    Array.from(nodesByVisualColumn.keys()).sort((a, b) => a - b).forEach(visualColKey => {
-        const nodesInColumn = nodesByVisualColumn.get(visualColKey)!;
-        nodesInColumn.sort((idA, idB) => {
-            const nodeA = layoutNodesMap.get(idA)!;
-            const nodeB = layoutNodesMap.get(idB)!;
-            if (nodeA.y !== nodeB.y) return nodeA.y - nodeB.y;
-            return nodeA.title.localeCompare(nodeB.title) || nodeA.id.localeCompare(nodeB.id);
-        });
+    // ルートノード（入次数0のノード）を特定
+    const rootNodes = Array.from(layoutNodesMap.values())
+        .filter(n => (inDegree.get(n.id) || 0) === 0)
+        .map(n => n.id);
 
-        const layerX = PAGE_MARGIN_X + visualColKey * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
-        let currentY = PAGE_MARGIN_Y;
-        
-        nodesInColumn.forEach(nodeId => {
-            const nodeToPosition = layoutNodesMap.get(nodeId);
-            if (nodeToPosition) {
-                newPositionsMap.set(nodeId, { x: layerX, y: currentY });
-                currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+    // 各ルートノードから始まる親子グループを格納する配列
+    const nodeGroups: string[][] = [];
+    const visitedForGrouping = new Set<string>();
+
+    function getFullGroup(startNodeId: string, currentGroup: Set<string>) {
+        if (visitedForGrouping.has(startNodeId) || currentGroup.has(startNodeId)) {
+            return;
+        }
+        currentGroup.add(startNodeId);
+        visitedForGrouping.add(startNodeId);
+
+        // 子孫を辿る
+        (adj.get(startNodeId) || []).forEach(childId => {
+            if (layoutNodesMap.has(childId)) {
+                getFullGroup(childId, currentGroup);
             }
         });
+        // 親を辿る (ルートまで)
+        (revAdj.get(startNodeId) || []).forEach(parentId => {
+            if (layoutNodesMap.has(parentId)) {
+                getFullGroup(parentId, currentGroup);
+            }
+        });
+    }
+
+    rootNodes.forEach(rootId => {
+        if (!visitedForGrouping.has(rootId)) {
+            const group = new Set<string>();
+            getFullGroup(rootId, group);
+            if (group.size > 0) {
+                 // グループ内のノードを layerRTL と Y座標 (既存があれば) でソート
+                const sortedGroup = Array.from(group).sort((a, b) => {
+                    const layerA = maxLayerRTL - (layerRTL.get(a) || 0);
+                    const layerB = maxLayerRTL - (layerRTL.get(b) || 0);
+                    if (layerA !== layerB) return layerA - layerB;
+                    
+                    const nodeA = layoutNodesMap.get(a)!;
+                    const nodeB = layoutNodesMap.get(b)!;
+                    return (nodeA.y || 0) - (nodeB.y || 0); // 既存のY座標でソート
+                });
+                nodeGroups.push(sortedGroup);
+            }
+        }
+    });
+
+    // 孤立したノードやサイクル内のノードもグループとして追加
+    layoutNodesMap.forEach(node => {
+        if (!visitedForGrouping.has(node.id)) {
+            const group = new Set<string>();
+            getFullGroup(node.id, group); // このノードから到達可能な全ノードを取得
+             if (group.size > 0) {
+                const sortedGroup = Array.from(group).sort((a, b) => {
+                     const layerA = maxLayerRTL - (layerRTL.get(a) || 0);
+                    const layerB = maxLayerRTL - (layerRTL.get(b) || 0);
+                    if (layerA !== layerB) return layerA - layerB;
+                    const nodeA = layoutNodesMap.get(a)!;
+                    const nodeB = layoutNodesMap.get(b)!;
+                    return (nodeA.y || 0) - (nodeB.y || 0);
+                });
+                nodeGroups.push(sortedGroup);
+            }
+        }
+    });
+
+    let overallMaxYForColumn = new Map<number, number>(); // 各列の現在の最大Y座標を保持
+
+    // グループをX方向の開始列でソート（最も左にあるノードの列を基準）
+    nodeGroups.sort((groupA, groupB) => {
+        const minColA = Math.min(...groupA.map(id => maxLayerRTL - (layerRTL.get(id) || 0)));
+        const minColB = Math.min(...groupB.map(id => maxLayerRTL - (layerRTL.get(id) || 0)));
+        if (minColA !== minColB) return minColA - minColB;
+        // 同じ列から始まる場合は、元のY座標の最小値でソート (安定性のため)
+        const minY_A = Math.min(...groupA.map(id => layoutNodesMap.get(id)?.y || Infinity));
+        const minY_B = Math.min(...groupB.map(id => layoutNodesMap.get(id)?.y || Infinity));
+        return minY_A - minY_B;
+    });
+
+
+    let currentGlobalMaxY = PAGE_MARGIN_Y; // 全体のY方向のオフセット
+
+    nodeGroups.forEach(group => {
+        const nodesInGroup = group.map(id => layoutNodesMap.get(id)!);
+        const nodesByVisualColumnInGroup = new Map<number, NodeData[]>();
+        let groupMinVisualColumn = Infinity;
+        let groupMaxVisualColumn = -Infinity;
+
+        nodesInGroup.forEach(node => {
+            const rtl = layerRTL.get(node.id) || 0;
+            const visualColumnIndex = maxLayerRTL - rtl;
+            groupMinVisualColumn = Math.min(groupMinVisualColumn, visualColumnIndex);
+            groupMaxVisualColumn = Math.max(groupMaxVisualColumn, visualColumnIndex);
+
+            if (!nodesByVisualColumnInGroup.has(visualColumnIndex)) {
+                nodesByVisualColumnInGroup.set(visualColumnIndex, []);
+            }
+            nodesByVisualColumnInGroup.get(visualColumnIndex)!.push(node);
+        });
+
+        // このグループを配置するためのYオフセットを決定
+        // 前のグループの最大Y座標を考慮する
+        let startYForGroup = currentGlobalMaxY;
+        
+        let groupHeight = 0;
+        const groupColumnHeights = new Map<number, number>();
+    
+        Array.from(nodesByVisualColumnInGroup.keys()).sort((a,b) => a-b).forEach(visualColKey => {
+            const nodesInColumn = nodesByVisualColumnInGroup.get(visualColKey)!;
+            // 列内でY方向にソート (元の順序を尊重しつつ、未定義ならタイトルでソート)
+            nodesInColumn.sort((a, b) => {
+                 const inDegreeA = inDegree.get(a.id) || 0;
+                 const inDegreeB = inDegree.get(b.id) || 0;
+                 if (inDegreeA !== inDegreeB) return inDegreeA - inDegreeB; // 親に近いものを上に
+                 return a.title.localeCompare(b.title);
+            });
+
+            let currentYInColumn = 0;
+            nodesInColumn.forEach(node => {
+                const nodeHeight = node.height || DEFAULT_NODE_HEIGHT;
+                currentYInColumn += nodeHeight + VERTICAL_SPACING;
+            });
+            groupColumnHeights.set(visualColKey, currentYInColumn - VERTICAL_SPACING); // 最後の余分なスペースを引く
+            groupHeight = Math.max(groupHeight, currentYInColumn - VERTICAL_SPACING);
+        });
+
+
+        // 各列ごとにノードを配置
+        Array.from(nodesByVisualColumnInGroup.keys()).sort((a,b) => a-b).forEach(visualColKey => {
+            const nodesInColumn = nodesByVisualColumnInGroup.get(visualColKey)!;
+            const layerX = PAGE_MARGIN_X + visualColKey * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+            let currentY = startYForGroup;
+
+            nodesInColumn.forEach(node => {
+                newPositionsMap.set(node.id, { x: layerX, y: currentY });
+                currentY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+            });
+        });
+        currentGlobalMaxY = startYForGroup + groupHeight + VERTICAL_SPACING * 2; // グループ間に十分なスペース
     });
     
+    // 未配置ノードの処理（通常は発生しないはずだが念のため）
     const positionedNodeIds = new Set(newPositionsMap.keys());
     let unPositionedColumnX = PAGE_MARGIN_X + (effectiveMaxVisualColumn + 1) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
-    if (nodesByVisualColumn.size === 0) {
+    if (layoutNodesMap.size === positionedNodeIds.size && nodesByVisualColumn.size === 0 && nodeGroups.length === 0) { // 全ノードが孤立している場合など
         unPositionedColumnX = PAGE_MARGIN_X;
     }
 
-    let unPositionY = PAGE_MARGIN_Y;
-    Array.from(layoutNodesMap.values()).forEach(node => { // Iterate over a copy or a map's values
+    let unPositionY = currentGlobalMaxY; // 未配置ノードは最後のグループの下から開始
+    Array.from(layoutNodesMap.values()).forEach(node => {
       if (!positionedNodeIds.has(node.id)) {
         newPositionsMap.set(node.id, { x: unPositionedColumnX, y: unPositionY });
         unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
-        positionedNodeIds.add(node.id); 
+        positionedNodeIds.add(node.id);
       }
     });
 
