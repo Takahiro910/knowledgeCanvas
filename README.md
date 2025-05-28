@@ -4,7 +4,7 @@ Knowledge Canvas is a Windows desktop application for visually managing and link
 
 ## Features
 
-- **File Upload & Node Creation**: Upload files (PDF, DOCX, TXT) and display them as interactive nodes on the canvas
+- **File Upload & Node Creation**: Upload files (PDF, DOCX, TXT, XLSX, PPTX) and display them as interactive nodes on the canvas
 - **Manual Note Creation**: Create text-based notes directly on the canvas
 - **Visual Node Linking**: Link nodes together visually to establish relationships between knowledge assets
 - **Dynamic Contextual Search**: Search the canvas for nodes containing specific text, with adjustable depth for displaying linked nodes

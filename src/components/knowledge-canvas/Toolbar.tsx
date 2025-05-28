@@ -61,7 +61,7 @@ export function Toolbar({
           onChange={onFileUpload}
           className="hidden"
           multiple
-          accept=".pdf,.docx,.txt,.jpg,.jpeg,.png"
+          accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.svg,.xlsx, .xlsm,.xls,.pptx,.ppt" // ★ 更新
         />
         <Button variant="outline" onClick={onCreateNote} aria-label="Create new note">
           <StickyNote className="mr-2 h-4 w-4" /> Create Note

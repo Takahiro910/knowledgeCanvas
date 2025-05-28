@@ -1,13 +1,17 @@
+// src/components/knowledge-canvas/NodeItem.tsx
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import type { NodeData } from '@/types';
-import { FileText, StickyNote as NoteIcon, Image as ImageIcon, ExternalLink, Link as LinkIconLucide } from 'lucide-react'; // Import LinkIconLucide
+import { FileText, StickyNote as NoteIcon, Image as ImageIcon, ExternalLink, Link as LinkIconLucide } from 'lucide-react';
 import { FilePdfIcon } from '@/components/icons/FilePdfIcon';
 import { FileDocxIcon } from '@/components/icons/FileDocxIcon';
+import { FileExcelIcon } from '@/components/icons/FileExcelIcon'; // ★ 追加
+import { FilePowerpointIcon } from '@/components/icons/FilePowerpointIcon'; // ★ 追加
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button'; // Added Button
-import { useToast } from '@/hooks/use-toast'; // Added useToast
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 interface NodeItemProps {
   node: NodeData;
@@ -21,7 +25,7 @@ interface NodeItemProps {
   isDeleteMode: boolean;
   isSelectedForDeletion: boolean;
   zoomLevel: number;
-  onContentUpdate: (nodeId: string, newContent: string) => void; // Existing prop for inline editing
+  onContentUpdate: (nodeId: string, newContent: string) => void;
 }
 
 export function NodeItem({
@@ -36,19 +40,18 @@ export function NodeItem({
   isDeleteMode,
   isSelectedForDeletion,
   zoomLevel,
-  onContentUpdate, // Added for consistency, though file content isn't edited inline
+  onContentUpdate,
 }: NodeItemProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
   const didDragRef = useRef(false);
-  const { toast } = useToast(); // For showing errors if file open fails
+  const { toast } = useToast();
 
-  // ... (renderIcon, handleMouseDown, mouseMoveHandler, mouseUpHandler, useEffect for drag remain the same)
   const renderIcon = () => {
     if (node.type === 'note') {
       return <NoteIcon className="h-6 w-6 text-primary" />;
     }
-    if (node.type === 'link') { // Add case for 'link'
+    if (node.type === 'link') {
       return <LinkIconLucide className="h-6 w-6 text-green-600" />;
     }
     if (node.type === 'file') {
@@ -61,6 +64,10 @@ export function NodeItem({
           return <FileText className="h-6 w-6 text-gray-600" />;
         case 'IMAGE':
           return <ImageIcon className="h-6 w-6 text-purple-600" />;
+        case 'EXCEL': // ★ 追加
+          return <FileExcelIcon className="h-6 w-6 text-green-700" />; // TODO: アイコンと色を調整
+        case 'POWERPOINT': // ★ 追加
+          return <FilePowerpointIcon className="h-6 w-6 text-orange-600" />; // TODO: アイコンと色を調整
         default:
           return <FileText className="h-6 w-6 text-muted-foreground" />;
       }
@@ -72,7 +79,6 @@ export function NodeItem({
     if (e.button !== 0 || propsIsLinkingMode) {
       return;
     }
-    // Prevent drag if clicking on the open file button
     if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
         return;
     }
@@ -158,7 +164,6 @@ export function NodeItem({
       e.stopPropagation();
       return;
     }
-    // Prevent node selection if clicking on the open file button
     if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
         e.stopPropagation();
         return;
@@ -171,7 +176,6 @@ export function NodeItem({
 
   const handleCardDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // Prevent double click if clicking on the open file button
     if ((e.target as HTMLElement).closest('[data-open-file-button="true"]')) {
         return;
     }
@@ -180,26 +184,26 @@ export function NodeItem({
     }
   };
 
-  const handleOpenFile = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent node selection or drag
-    if (node.type === 'file' && node.filePath && window.electronAPI) {
-      try {
-        const success = await window.electronAPI.openLocalFile(node.filePath);
-        if (!success) {
-          // Error message handled in main.js via dialog
-          // Optionally, show a toast here too if main process returns specific error info
-        }
-      } catch (error) {
-        console.error("Error opening file:", error);
-        toast({ title: "Error", description: "Could not open the file.", variant: "destructive" });
-      }
-    }
-  };
+  // handleOpenFile is not used, handleOpenFileOrUrl covers its functionality.
+  // const handleOpenFile = async (e: React.MouseEvent) => {
+  //   e.stopPropagation(); // Prevent node selection or drag
+  //   if (node.type === 'file' && node.filePath && window.electronAPI) {
+  //     try {
+  //       const success = await window.electronAPI.openLocalFile(node.filePath);
+  //       if (!success) {
+  //         // Error message handled in main.js via dialog
+  //       }
+  //     } catch (error) {
+  //       console.error("Error opening file:", error);
+  //       toast({ title: "Error", description: "Could not open the file.", variant: "destructive" });
+  //     }
+  //   }
+  // };
 
   const nodeWidth = node.width || 256;
   let nodeHeight = node.height || 'auto';
-    if (node.type === 'note' && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
-    // Basic auto-height adjustment if tags are present for notes.
+    if ((node.type === 'note' || node.type === 'link') && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
+    // Basic auto-height adjustment if tags are present for notes and links with descriptions.
   }
 
   return (
@@ -217,7 +221,7 @@ export function NodeItem({
         left: node.x,
         top: node.y,
         width: nodeWidth,
-        minHeight: node.type === 'note' ? (node.content ? 160 : 100) : 160,
+        minHeight: (node.type === 'note' || node.type === 'link') ? (node.content ? 160 : 100) : 160, // Adjusted for link description
         height: nodeHeight
       }}
       onMouseDown={handleMouseDown}
@@ -225,18 +229,18 @@ export function NodeItem({
       onDoubleClick={handleCardDoubleClick}
       aria-selected={isSelected}
     >
-      <CardHeader className="p-3">
+      <CardHeader className="p-3"> {/* */}
         <div className="flex items-start gap-2">
           <div className="flex-shrink-0 pt-1">{renderIcon()}</div>
           <div className="flex-grow min-w-0">
-            <CardTitle className="text-base leading-tight truncate" title={node.title}>
+            <CardTitle className="text-base leading-tight truncate" title={node.title}> {/* */}
               {node.title}
             </CardTitle>
-            {node.fileType && <CardDescription className="text-xs">{node.fileType}</CardDescription>}
+            {node.fileType && <CardDescription className="text-xs">{node.fileType}</CardDescription>} {/* */}
           </div>
             {(node.type === 'file' && node.filePath || node.type === 'link' && node.url) && (
               <Button
-                data-open-file-button="true" // Keep this for preventing drag
+                data-open-file-button="true"
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 flex-shrink-0"
@@ -249,25 +253,23 @@ export function NodeItem({
             )}
         </div>
       </CardHeader>
+      {/* Display content/description for note, file, and link nodes */}
       {(node.type === 'note' || (node.type === 'file' && node.content) || node.type === 'link') && (
         <CardContent
           className="p-3 pt-0 text-sm overflow-hidden flex-grow"
         >
           <p className={cn(
               "whitespace-pre-wrap break-words",
-              (node.content || (node.type === 'link' && node.url)) ? "line-clamp-3" : "text-muted-foreground italic"
+              (node.content) ? "line-clamp-3" : "text-muted-foreground italic" // Simplified condition
           )}>
-            {node.type === 'link' 
-              ? (node.url || 'No URL') 
-              : (node.content || (node.type === 'file' ? 'No description.' : ''))
-            }
+            {node.content || (node.type === 'link' ? 'No description.' : (node.type === 'file' ? 'No description.' : ''))}
           </p>
         </CardContent>
       )}
       {(node.tags && node.tags.length > 0) && (
-        <CardFooter className="p-3 pt-1 flex flex-wrap gap-1 border-t mt-auto">
+        <CardFooter className="p-3 pt-1 flex flex-wrap gap-1 border-t mt-auto"> {/* */}
           {node.tags.map((tag, index) => (
-            <Badge key={index} variant="secondary" className="text-xs">
+            <Badge key={index} variant="secondary" className="text-xs"> {/* */}
               {tag}
             </Badge>
           ))}

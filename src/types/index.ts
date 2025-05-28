@@ -1,15 +1,16 @@
 // src/types/index.ts
-export type NodeType = 'file' | 'note' | 'link'; // Add 'link'
-export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'URL' | 'OTHER'; // Add 'URL'
+// src/types/index.ts
+export type NodeType = 'file' | 'note' | 'link';
+export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'URL' | 'EXCEL' | 'POWERPOINT' | 'OTHER'; // Add 'EXCEL', 'POWERPOINT'
 
 export interface NodeData {
   id: string;
   type: NodeType;
   title: string;
   content?: string;
-  fileType?: FileType; // For 'file' and 'link' types
-  filePath?: string; // Path to the locally stored file (for 'file' type)
-  url?: string;      // URL for 'link' type
+  fileType?: FileType;
+  filePath?: string;
+  url?: string;
   tags?: string[];
   x: number;
   y: number;

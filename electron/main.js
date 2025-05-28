@@ -180,7 +180,7 @@ function setupIpcHandlers() {
       const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
           properties: ['openFile', 'multiSelections'],
           filters: [
-              { name: 'Documents & Images', extensions: ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png'] },
+              { name: 'Documents, Spreadsheets, Presentations & Images', extensions: ['pdf', 'docx', 'doc', 'txt', 'xlsx', 'xlsm', 'xls', 'pptx', 'ppt', 'jpg', 'jpeg', 'png', 'gif', 'svg'] }, // ★ 更新
               { name: 'All Files', extensions: ['*'] }
           ]
       });
