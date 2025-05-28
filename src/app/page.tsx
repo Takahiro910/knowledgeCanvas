@@ -995,7 +995,7 @@ export default function KnowledgeCanvasPage() {
     // この関数は既存のPopoverから呼ばれるため、ここでは入力フィールドのクリアやPopoverのクローズはしない
   };
 
- const handleAutoLayout = useCallback((isAutomaticCall = false) => {
+  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
     const nodesToLayout = filteredNodesAndLinks.displayNodes;
     const linksToConsider = filteredNodesAndLinks.displayLinks;
 
@@ -1006,91 +1006,154 @@ export default function KnowledgeCanvasPage() {
       return;
     }
 
-    const layoutNodes = JSON.parse(JSON.stringify(nodesToLayout)) as NodeData[];
+    const layoutNodesMap = new Map(nodesToLayout.map(n => [n.id, JSON.parse(JSON.stringify(n)) as NodeData])); // Deep copy for safety
 
     const adj = new Map<string, string[]>();
+    const revAdj = new Map<string, string[]>();
     const inDegree = new Map<string, number>();
+    const outDegree = new Map<string, number>();
 
-    const DEFAULT_NODE_WIDTH = 256;
-    const DEFAULT_NODE_HEIGHT = 160;
-    const HORIZONTAL_SPACING = 100; 
-    const VERTICAL_SPACING = 60; 
-    const PAGE_MARGIN_X = 50;
-    const PAGE_MARGIN_Y = 50;
-
-    layoutNodes.forEach(n => {
-      inDegree.set(n.id, 0);
+    layoutNodesMap.forEach(n => {
       adj.set(n.id, []);
+      revAdj.set(n.id, []);
+      inDegree.set(n.id, 0);
+      outDegree.set(n.id, 0);
     });
 
     linksToConsider.forEach(link => {
-      const sourceExists = layoutNodes.some(n => n.id === link.sourceNodeId);
-      const targetExists = layoutNodes.some(n => n.id === link.targetNodeId);
-      if (sourceExists && targetExists) {
-        adj.get(link.sourceNodeId)?.push(link.targetNodeId);
+      if (layoutNodesMap.has(link.sourceNodeId) && layoutNodesMap.has(link.targetNodeId)) {
+        adj.get(link.sourceNodeId)!.push(link.targetNodeId);
+        revAdj.get(link.targetNodeId)!.push(link.sourceNodeId);
         inDegree.set(link.targetNodeId, (inDegree.get(link.targetNodeId) || 0) + 1);
+        outDegree.set(link.sourceNodeId, (outDegree.get(link.sourceNodeId) || 0) + 1);
       }
     });
 
-    let queue = layoutNodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
-    const layers: string[][] = [];
-
-    while (queue.length > 0) {
-      const currentLayerNodeIds = [...queue];
-      layers.push(currentLayerNodeIds);
-      const nextQueue: string[] = [];
-
-      currentLayerNodeIds.forEach(nodeId => {
-        (adj.get(nodeId) || []).forEach(neighborId => {
-          inDegree.set(neighborId, (inDegree.get(neighborId) || 1) - 1);
-          if ((inDegree.get(neighborId) || 0) === 0) {
-            nextQueue.push(neighborId);
-          }
+    // --- Calculate Longest Path To Sink (layerRTL) ---
+    
+    // 1. Get standard topological sort (sources first)
+    const topoOrder: string[] = [];
+    const qForTopo = Array.from(layoutNodesMap.values())
+                           .filter(n => (inDegree.get(n.id) || 0) === 0)
+                           .map(n => n.id);
+    const tempInDegree = new Map(inDegree);
+    let headTopo = 0;
+    while(headTopo < qForTopo.length) {
+        const u_id = qForTopo[headTopo++];
+        topoOrder.push(u_id);
+        (adj.get(u_id) || []).forEach(v_id => {
+            if (layoutNodesMap.has(v_id)) { // Process only nodes in the current layout
+                tempInDegree.set(v_id, (tempInDegree.get(v_id) || 1) - 1);
+                if ((tempInDegree.get(v_id) || 0) === 0) {
+                    qForTopo.push(v_id);
+                }
+            }
         });
-      });
-      queue = nextQueue;
+    }
+
+    // 2. Calculate layerRTL by iterating in reverse topological order
+    const layerRTL = new Map<string, number>();
+    layoutNodesMap.forEach(n => layerRTL.set(n.id, 0)); // Initialize
+
+    for (let i = topoOrder.length - 1; i >= 0; i--) {
+        const u_id = topoOrder[i];
+        const nodeOutDegree = (outDegree.get(u_id) || 0);
+
+        if (nodeOutDegree === 0) { // Is a sink node
+            layerRTL.set(u_id, 0);
+        } else {
+            let maxChildLayerRTL = -1;
+            (adj.get(u_id) || []).forEach(v_id => { // For each child v_id of u_id
+                 if (layoutNodesMap.has(v_id)) { // Check if child is in current consideration
+                    maxChildLayerRTL = Math.max(maxChildLayerRTL, layerRTL.get(v_id) || 0);
+                 }
+            });
+             // if maxChildLayerRTL remains -1 (e.g. node had children but none are in layoutNodesMap), treat as sink.
+            layerRTL.set(u_id, (maxChildLayerRTL === -1 ? -1 : maxChildLayerRTL) + 1);
+        }
     }
     
-    const newPositionsMap = new Map<string, { x: number, y: number }>();
+    let maxLayerRTL = 0;
+    layerRTL.forEach(val => { if (val > maxLayerRTL) maxLayerRTL = val; });
+    // --- End LayerRTL Calculation ---
 
-    layers.forEach((layer, layerIndex) => {
-      let currentY = PAGE_MARGIN_Y;
-      const layerX = PAGE_MARGIN_X + layerIndex * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
-      layer.forEach(nodeId => {
-        const nodeToPosition = layoutNodes.find(n => n.id === nodeId);
-        if (nodeToPosition) {
-          newPositionsMap.set(nodeId, { x: layerX, y: currentY });
-          currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+    const newPositionsMap = new Map<string, { x: number, y: number }>();
+    const DEFAULT_NODE_WIDTH = 256;
+    const DEFAULT_NODE_HEIGHT = 160;
+    const HORIZONTAL_SPACING = 100;
+    const VERTICAL_SPACING = 60;
+    const PAGE_MARGIN_X = 50;
+    const PAGE_MARGIN_Y = 50;
+
+    const nodesByVisualColumn = new Map<number, string[]>();
+    let effectiveMaxVisualColumn = 0;
+
+    layoutNodesMap.forEach(node => {
+        const rtl = layerRTL.get(node.id) || 0;
+        // visualColumn index makes sources (maxLayerRTL) appear on left (column 0)
+        // and sinks (layerRTL 0) appear on right (column maxLayerRTL)
+        const visualColumnIndex = maxLayerRTL - rtl; 
+        
+        if (!nodesByVisualColumn.has(visualColumnIndex)) {
+            nodesByVisualColumn.set(visualColumnIndex, []);
         }
-      });
+        nodesByVisualColumn.get(visualColumnIndex)!.push(node.id);
+        if (visualColumnIndex > effectiveMaxVisualColumn) {
+            effectiveMaxVisualColumn = visualColumnIndex;
+        }
     });
     
-    const positionedNodeIds = new Set(layers.flat());
-    let lastX = PAGE_MARGIN_X + (layers.length > 0 ? layers.length -1 : 0) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
-    if (layers.some(layer => layer.length > 0)) {
-        lastX += DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING;
-    }
+    Array.from(nodesByVisualColumn.keys()).sort((a, b) => a - b).forEach(visualColKey => {
+        const nodesInColumn = nodesByVisualColumn.get(visualColKey)!;
+        nodesInColumn.sort((idA, idB) => {
+            const nodeA = layoutNodesMap.get(idA)!;
+            const nodeB = layoutNodesMap.get(idB)!;
+            if (nodeA.y !== nodeB.y) return nodeA.y - nodeB.y;
+            return nodeA.title.localeCompare(nodeB.title) || nodeA.id.localeCompare(nodeB.id);
+        });
+
+        const layerX = PAGE_MARGIN_X + visualColKey * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+        let currentY = PAGE_MARGIN_Y;
+        
+        nodesInColumn.forEach(nodeId => {
+            const nodeToPosition = layoutNodesMap.get(nodeId);
+            if (nodeToPosition) {
+                newPositionsMap.set(nodeId, { x: layerX, y: currentY });
+                currentY += (nodeToPosition.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+            }
+        });
+    });
     
+    const positionedNodeIds = new Set(newPositionsMap.keys());
+    let unPositionedColumnX = PAGE_MARGIN_X + (effectiveMaxVisualColumn + 1) * (DEFAULT_NODE_WIDTH + HORIZONTAL_SPACING);
+    if (nodesByVisualColumn.size === 0) {
+        unPositionedColumnX = PAGE_MARGIN_X;
+    }
+
     let unPositionY = PAGE_MARGIN_Y;
-    layoutNodes.forEach(node => {
+    Array.from(layoutNodesMap.values()).forEach(node => { // Iterate over a copy or a map's values
       if (!positionedNodeIds.has(node.id)) {
-        newPositionsMap.set(node.id, { x: lastX, y: unPositionY });
+        newPositionsMap.set(node.id, { x: unPositionedColumnX, y: unPositionY });
         unPositionY += (node.height || DEFAULT_NODE_HEIGHT) + VERTICAL_SPACING;
+        positionedNodeIds.add(node.id); 
       }
     });
 
     setNodes(prevNodes =>
       prevNodes.map(n => {
         const newPosition = newPositionsMap.get(n.id);
-        if (newPosition && window.electronAPI) {
-            window.electronAPI.updateNodePosition(n.id, newPosition).catch(err => console.error("Failed to update node position during auto-layout:", err));
+        if (newPosition) {
+            if (window.electronAPI && (n.x !== newPosition.x || n.y !== newPosition.y)) {
+                window.electronAPI.updateNodePosition(n.id, newPosition).catch(err => console.error("Failed to update node position during auto-layout:", err));
+            }
             return { ...n, x: newPosition.x, y: newPosition.y };
         }
         return n;
       })
     );
+
     if (nodesToLayout.length > 0 && !isAutomaticCall) {
-     toast({ title: "Layout Applied", description: "Visible nodes have been automatically arranged." });
+     toast({ title: "Layout Applied", description: "Nodes arranged with children as 'roots' on the right, parents extending left." });
     }
   }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast]);
   
