@@ -1,7 +1,6 @@
 // src/types/index.ts
-// src/types/index.ts
 export type NodeType = 'file' | 'note' | 'link';
-export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'URL' | 'EXCEL' | 'POWERPOINT' | 'OTHER'; // Add 'EXCEL', 'POWERPOINT'
+export type FileType = 'PDF' | 'DOCX' | 'TXT' | 'IMAGE' | 'URL' | 'EXCEL' | 'POWERPOINT' | 'OTHER';
 
 export interface NodeData {
   id: string;
@@ -16,6 +15,11 @@ export interface NodeData {
   y: number;
   width?: number;
   height?: number;
+  // 力指向レイアウト用に追加
+  vx?: number; // X方向の速度
+  vy?: number; // Y方向の速度
+  fx?: number | null; // X方向の固定位置
+  fy?: number | null; // Y方向の固定位置
 }
 
 export interface LinkData {
@@ -31,3 +35,6 @@ export interface DeleteModeState {
     links: string[];
   };
 }
+
+// レイアウトアルゴリズムの型を追加
+export type LayoutAlgorithmType = 'hierarchical' | 'force-directed';

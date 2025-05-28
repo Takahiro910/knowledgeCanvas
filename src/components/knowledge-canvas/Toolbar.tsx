@@ -1,12 +1,15 @@
-
+// src/components/knowledge-canvas/Toolbar.tsx
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag, LayoutGrid, Trash2 } from 'lucide-react';
+// SelectコンポーネントとShuffleアイコンをインポート
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { UploadCloud, StickyNote, Search, Layers, Link as LinkIcon, Tag, LayoutGrid, Trash2, Shuffle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import type { LayoutAlgorithmType } from '@/types'; // LayoutAlgorithmTypeをインポート
 
 interface ToolbarProps {
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -23,13 +26,15 @@ interface ToolbarProps {
   selectedFilterTags: string[];
   onFilterTagToggle: (tag: string) => void;
   onAutoLayout: () => void;
+  currentLayoutAlgorithm: LayoutAlgorithmType; // 追加
+  onLayoutAlgorithmChange: (algorithm: LayoutAlgorithmType) => void; // 追加
 }
 
 export function Toolbar({
   onFileUpload,
   onCreateNote,
-  // onSearch,
-  // currentSearchTerm,
+  onSearch,
+  currentSearchTerm,
   onDepthChange,
   currentDepth,
   onToggleLinkMode,
@@ -40,8 +45,8 @@ export function Toolbar({
   selectedFilterTags,
   onFilterTagToggle,
   onAutoLayout,
-  currentSearchTerm,
-  onSearch,
+  currentLayoutAlgorithm, // 追加
+  onLayoutAlgorithmChange, // 追加
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -52,6 +57,7 @@ export function Toolbar({
   return (
     <header className="p-3 bg-card border-b border-border shadow-sm flex flex-col gap-3 print:hidden sticky top-0 z-10">
       <div className="flex flex-wrap items-center gap-4">
+        {/* ...既存のボタン... */}
         <Button variant="outline" onClick={handleUploadClick} aria-label="Upload file">
           <UploadCloud className="mr-2 h-4 w-4" /> Upload File
         </Button>
@@ -61,7 +67,7 @@ export function Toolbar({
           onChange={onFileUpload}
           className="hidden"
           multiple
-          accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.svg,.xlsx, .xlsm,.xls,.pptx,.ppt" // ★ 更新
+          accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.svg,.xlsx, .xlsm,.xls,.pptx,.ppt"
         />
         <Button variant="outline" onClick={onCreateNote} aria-label="Create new note">
           <StickyNote className="mr-2 h-4 w-4" /> Create Note
@@ -80,13 +86,33 @@ export function Toolbar({
         >
           <Trash2 className="mr-2 h-4 w-4" /> {isDeleteMode ? 'Deleting...' : 'Delete Mode'}
         </Button>
-        <Button variant="outline" onClick={onAutoLayout} aria-label="Arrange nodes automatically">
-            <LayoutGrid className="mr-2 h-4 w-4" /> Auto Layout
+        
+        {/* レイアウトアルゴリズム選択 */}
+        <div className="flex items-center gap-2">
+            <Shuffle className="h-5 w-5 text-muted-foreground" />
+            <Label htmlFor="layout-algorithm" className="whitespace-nowrap text-sm">Layout:</Label>
+            <Select
+                value={currentLayoutAlgorithm}
+                onValueChange={(value: LayoutAlgorithmType) => onLayoutAlgorithmChange(value)}
+            >
+                <SelectTrigger className="w-[180px] h-9" id="layout-algorithm">
+                    <SelectValue placeholder="Select layout" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="hierarchical">Hierarchical</SelectItem>
+                    <SelectItem value="force-directed">Force Directed</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+
+        <Button variant="outline" onClick={onAutoLayout} aria-label="Apply current layout">
+            <LayoutGrid className="mr-2 h-4 w-4" /> Apply Layout
         </Button>
+
         <div className="flex items-center gap-2">
           <Search className="h-5 w-5 text-muted-foreground" />
           <Input
-            id="toolbar-search-input" // ★ 検索入力にIDを追加
+            id="toolbar-search-input"
             type="search"
             placeholder="Search nodes (inc. tags)..."
             className="w-64"

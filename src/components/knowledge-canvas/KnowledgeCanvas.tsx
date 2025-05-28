@@ -21,6 +21,7 @@ interface KnowledgeCanvasProps {
   onCanvasWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
   onFilesDrop: (items: DataTransferItemList | File[], dropX?: number, dropY?: number) => void; // Modified to accept DataTransferItemList
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
+  onNodeDragEnd: (nodeId: string) => void; // ★ 追加
   canvasRef: React.RefObject<HTMLDivElement>;
   onNodeContentUpdate: (nodeId: string, newContent: string) => void; // ★ 新しいプロパティ
   onLinkClick?: (linkId: string) => void;
@@ -44,6 +45,7 @@ export function KnowledgeCanvas({
   onCanvasWheel,
   onFilesDrop,
   onNodeDrag,
+  onNodeDragEnd, // ★ 追加
   canvasRef,
   onNodeContentUpdate, // ★ 新しいプロパティを受け取る
   onLinkClick,
@@ -133,6 +135,7 @@ export function KnowledgeCanvas({
             onNodeClick={onNodeClick}
             onNodeDoubleClick={onNodeDoubleClick}
             onNodeDrag={onNodeDrag}
+            onNodeDragEnd={onNodeDragEnd} // ★ 追加
             canvasRef={canvasRef}
             isLinkingMode={isLinkingMode}
             isDeleteMode={isDeleteMode}

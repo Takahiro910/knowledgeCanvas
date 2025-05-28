@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { KnowledgeCanvas } from '@/components/knowledge-canvas/KnowledgeCanvas';
 import { Toolbar } from '@/components/knowledge-canvas/Toolbar';
-import type { NodeData, LinkData, FileType as AppFileType, NodeType, DeleteModeState } from '@/types'; //
+import type { NodeData, LinkData, FileType as AppFileType, NodeType, DeleteModeState, LayoutAlgorithmType } from '@/types'; // LayoutAlgorithmType を追加
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast'; //
 import {
@@ -108,6 +108,12 @@ const traverseGraph = (
   visitedNodesInPath.delete(startNodeId);
 };
 
+const FORCE_DIRECTED_ITERATIONS = 150; // シミュレーションの反復回数
+const K_REPEL = 30000; // ノード間の斥力の強さ (大きな値でより反発)
+const K_SPRING = 0.04; // リンクのバネの強さ (大きな値でより強く引き合う)
+const DEFAULT_LINK_DISTANCE = 250; // リンクの自然長
+const DAMPING_FACTOR = 0.9; // 速度の減衰係数 (振動を抑える)
+const MIN_DISPLACEMENT = 0.1; // 収束判定のための最小移動量
 
 export default function KnowledgeCanvasPage() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
@@ -128,8 +134,6 @@ export default function KnowledgeCanvasPage() {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [currentEditData, setCurrentEditData] = useState<{ title: string; content: string; tags: string[] }>({ title: '', content: '', tags: [] });
   
-  // const [tagInputValue, setTagInputValue] = useState('');
-  // const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [tagSearchValue, setTagSearchValue] = useState('');
   const [isTitleFieldFocused, setIsTitleFieldFocused] = useState(false);
 
@@ -153,6 +157,8 @@ export default function KnowledgeCanvasPage() {
   const [showTagSuggestionsDropdown, setShowTagSuggestionsDropdown] = useState(false);
   const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(-1);
   const tagInputRef = useRef<HTMLInputElement>(null); // タグ入力フィールドの参照
+  const [layoutAlgorithm, setLayoutAlgorithm] = useState<LayoutAlgorithmType>('hierarchical');
+  const forceLayoutRef = useRef<{ animationFrameId: number | null }>({ animationFrameId: null });
 
 
   useEffect(() => {
@@ -787,20 +793,20 @@ export default function KnowledgeCanvasPage() {
     handleCreateNote();
   };
 
-  const handleNodeDrag = useCallback(async (nodeId: string, x: number, y: number) => {
-    setNodes(prevNodes =>
-      prevNodes.map(node =>
-        node.id === nodeId ? { ...node, x, y } : node
-      )
-    );
-    try {
-        if (window.electronAPI) {
-            await window.electronAPI.updateNodePosition(nodeId, { x, y });
-        }
-    } catch (error) {
-        console.error('Failed to update node position in DB:', error);
-    }
-  }, []);
+  // const handleNodeDrag = useCallback(async (nodeId: string, x: number, y: number) => {
+  //   setNodes(prevNodes =>
+  //     prevNodes.map(node =>
+  //       node.id === nodeId ? { ...node, x, y } : node
+  //     )
+  //   );
+  //   try {
+  //       if (window.electronAPI) {
+  //           await window.electronAPI.updateNodePosition(nodeId, { x, y });
+  //       }
+  //   } catch (error) {
+  //       console.error('Failed to update node position in DB:', error);
+  //   }
+  // }, []);
 
   const handleCanvasMouseDownForPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || isLinkingMode) return;
@@ -995,7 +1001,7 @@ export default function KnowledgeCanvasPage() {
     // この関数は既存のPopoverから呼ばれるため、ここでは入力フィールドのクリアやPopoverのクローズはしない
   };
 
-  const handleAutoLayout = useCallback((isAutomaticCall = false) => {
+  const applyHierarchicalLayout = useCallback((isAutomaticCall = false) => {
     const nodesToLayout = filteredNodesAndLinks.displayNodes;
     const linksToConsider = filteredNodesAndLinks.displayLinks;
 
@@ -1153,31 +1159,219 @@ export default function KnowledgeCanvasPage() {
     );
 
     if (nodesToLayout.length > 0 && !isAutomaticCall) {
-     toast({ title: "Layout Applied", description: "Nodes arranged with children as 'roots' on the right, parents extending left." });
+     toast({ title: "Hierarchical Layout Applied", description: "Nodes arranged." });
     }
   }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast]);
-  
-  const handleAutoLayoutRef = useRef(handleAutoLayout);
 
+    // 力指向レイアウト
+  const applyForceDirectedLayout = useCallback((isAutomaticCall = false) => {
+    const nodesToLayout = filteredNodesAndLinks.displayNodes;
+    const linksToConsider = filteredNodesAndLinks.displayLinks;
+
+    if (nodesToLayout.length === 0) {
+      if (!isAutomaticCall) {
+        toast({ title: "No nodes to layout", description: "No nodes are currently visible for force-directed layout." });
+      }
+      return;
+    }
+    
+    // アニメーションフレームをキャンセル
+    if (forceLayoutRef.current.animationFrameId) {
+        cancelAnimationFrame(forceLayoutRef.current.animationFrameId);
+        forceLayoutRef.current.animationFrameId = null;
+    }
+
+    // ノードの初期化 (速度と固定位置)
+    let currentNodes = nodesToLayout.map(n => ({
+        ...n,
+        vx: n.vx ?? 0, // 既存の速度を使うか、なければ0
+        vy: n.vy ?? 0,
+        fx: n.fx ?? null, // ユーザーがドラッグ中は固定される想定
+        fy: n.fy ?? null,
+    }));
+
+
+    let iteration = 0;
+    
+    const simulate = () => {
+        if (iteration >= FORCE_DIRECTED_ITERATIONS) {
+            // シミュレーション終了後、最終位置をDBに保存
+            currentNodes.forEach(n => {
+                 if (window.electronAPI && (nodes.find(pn => pn.id === n.id)?.x !== n.x || nodes.find(pn => pn.id === n.id)?.y !== n.y)) {
+                    window.electronAPI.updateNodePosition(n.id, { x: n.x, y: n.y }).catch(err => console.error("FD: Failed to update node position:", err));
+                 }
+            });
+            if (!isAutomaticCall) {
+                toast({ title: "Force-Directed Layout Applied", description: `Completed ${iteration} iterations.` });
+            }
+            forceLayoutRef.current.animationFrameId = null;
+            return;
+        }
+
+        let totalDisplacement = 0;
+
+        // 各ノードにかかる力を計算
+        currentNodes.forEach(node1 => {
+            if (node1.fx !== null && node1.fy !== null) { // 固定ノードはスキップ
+                node1.x = node1.fx;
+                node1.y = node1.fy;
+                return;
+            }
+
+            let forceX = 0;
+            let forceY = 0;
+
+            // 斥力 (他のすべてのノードから)
+            currentNodes.forEach(node2 => {
+                if (node1.id === node2.id) return;
+                const dx = node1.x - node2.x;
+                const dy = node1.y - node2.y;
+                let distanceSquared = dx * dx + dy * dy;
+                if (distanceSquared < 0.1) distanceSquared = 0.1; // ゼロ除算を避ける
+                const distance = Math.sqrt(distanceSquared);
+                
+                const repelForce = K_REPEL / distanceSquared;
+                forceX += (dx / distance) * repelForce;
+                forceY += (dy / distance) * repelForce;
+            });
+
+            // 引力 (リンクで繋がっているノードから)
+            linksToConsider.forEach(link => {
+                let otherNodeId: string | null = null;
+                if (link.sourceNodeId === node1.id) otherNodeId = link.targetNodeId;
+                else if (link.targetNodeId === node1.id) otherNodeId = link.sourceNodeId;
+
+                if (otherNodeId) {
+                    const node2 = currentNodes.find(n => n.id === otherNodeId);
+                    if (node2) {
+                        const dx = node2.x - node1.x;
+                        const dy = node2.y - node1.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        const displacement = distance - DEFAULT_LINK_DISTANCE;
+                        const springForce = K_SPRING * displacement;
+                        
+                        if (distance > 0) { // ゼロ除算を避ける
+                           forceX += (dx / distance) * springForce;
+                           forceY += (dy / distance) * springForce;
+                        }
+                    }
+                }
+            });
+
+            // 速度と位置の更新
+            node1.vx = (node1.vx + forceX) * DAMPING_FACTOR;
+            node1.vy = (node1.vy + forceY) * DAMPING_FACTOR;
+
+            const prevX = node1.x;
+            const prevY = node1.y;
+
+            node1.x += node1.vx;
+            node1.y += node1.vy;
+
+            // 画面端での反発 (簡易的) - 必要であれば調整
+            const canvasWidth = canvasRef.current?.clientWidth || 800;
+            const canvasHeight = canvasRef.current?.clientHeight || 600;
+            const nodeW = node1.width || 200;
+            const nodeH = node1.height || 100;
+
+            if (node1.x < 0) { node1.x = 0; node1.vx *= -0.5; }
+            if (node1.y < 0) { node1.y = 0; node1.vy *= -0.5; }
+            //
+            // 画面の境界を超えないようにする
+            // if (node1.x > canvasWidth - nodeW) { node1.x = canvasWidth - nodeW; node1.vx *= -0.5; }
+            // if (node1.y > canvasHeight - nodeH) { node1.y = canvasHeight - nodeH; node1.vy *= -0.5; }
+
+            totalDisplacement += Math.sqrt(Math.pow(node1.x - prevX, 2) + Math.pow(node1.y - prevY, 2));
+        });
+
+        setNodes(prevGlobalNodes => prevGlobalNodes.map(gn => {
+            const updatedNode = currentNodes.find(cn => cn.id === gn.id);
+            return updatedNode ? { ...gn, x: updatedNode.x, y: updatedNode.y, vx: updatedNode.vx, vy: updatedNode.vy } : gn;
+        }));
+        
+        iteration++;
+        if (totalDisplacement / currentNodes.length < MIN_DISPLACEMENT && iteration > 30) { // ある程度収束したら早めに終了
+            console.log(`Force-directed layout converged after ${iteration} iterations.`);
+            iteration = FORCE_DIRECTED_ITERATIONS; // ループを終了させる
+        }
+        forceLayoutRef.current.animationFrameId = requestAnimationFrame(simulate);
+    };
+
+    if (!isAutomaticCall) {
+      toast({ title: "Applying Force-Directed Layout", description: "Simulation started..." });
+    }
+    forceLayoutRef.current.animationFrameId = requestAnimationFrame(simulate);
+
+  }, [filteredNodesAndLinks.displayNodes, filteredNodesAndLinks.displayLinks, toast, nodes, canvasRef]);
+
+  const handleDepthChange = useCallback((depthArr: number[]) => {
+    setSearchDepth(depthArr[0]);
+  }, []);
+  
+  // handleAutoLayout を applyCurrentLayout に名前変更し、選択されたアルゴリズムを実行
+  const applyCurrentLayout = useCallback((isAutomaticCall = false) => {
+    // アニメーションフレームがあればキャンセル
+    if (forceLayoutRef.current.animationFrameId) {
+        cancelAnimationFrame(forceLayoutRef.current.animationFrameId);
+        forceLayoutRef.current.animationFrameId = null;
+    }
+
+    // ノードの固定状態を解除 (力指向レイアウトが再度適用される際に再計算されるように)
+    setNodes(prev => prev.map(n => ({ ...n, fx: null, fy: null, vx: 0, vy: 0 })));
+
+
+    if (layoutAlgorithm === 'hierarchical') {
+      applyHierarchicalLayout(isAutomaticCall);
+    } else if (layoutAlgorithm === 'force-directed') {
+      applyForceDirectedLayout(isAutomaticCall);
+    }
+  }, [layoutAlgorithm, applyHierarchicalLayout, applyForceDirectedLayout]);
+
+  const applyCurrentLayoutRef = useRef(applyCurrentLayout); // applyCurrentLayoutの参照を保持
   useEffect(() => {
-    handleAutoLayoutRef.current = handleAutoLayout;
-  }, [handleAutoLayout]);
+    applyCurrentLayoutRef.current = applyCurrentLayout;
+  }, [applyCurrentLayout]);
 
   useEffect(() => {
     if (isInitialRenderForAutoLayoutEffect.current) {
       isInitialRenderForAutoLayoutEffect.current = false;
       return;
     }
-    handleAutoLayoutRef.current(true); 
-  }, [searchTerm, selectedFilterTags, searchDepth]);
+    // 検索条件や表示ノードが変わった時に、選択中のレイアウトアルゴリズムを再適用する
+    applyCurrentLayoutRef.current(true);
+  }, [searchTerm, selectedFilterTags, searchDepth, layoutAlgorithm]); // layoutAlgorithm も依存配列に追加
 
-  const handleDepthChange = useCallback((depthArr: number[]) => {
-    setSearchDepth(depthArr[0]);
+
+  // NodeItemに渡す onNodeDrag を修正して、ドラッグ中はノードを固定 (力指向用)
+  const handleNodeDrag = useCallback(async (nodeId: string, x: number, y: number) => {
+    setNodes(prevNodes =>
+      prevNodes.map(node =>
+        node.id === nodeId ? { ...node, x, y, fx: x, fy: y } : node // fx, fy を更新して固定
+      )
+    );
+    // DBへの保存はドラッグ終了時に行う (mouseUpHandlerでfx, fyをnullにし、そのタイミングで保存)
   }, []);
 
-  const handleApplyAutoLayout = useCallback(() => {
-    handleAutoLayout(false);
-  }, [handleAutoLayout]);
+  // NodeItemのドラッグ終了時の処理 (KnowledgeCanvasに渡すものではなく、NodeItem内部で処理する方が適切かもしれないが、
+  // ここではpage.tsxで一元管理する案として)
+  const handleNodeDragEnd = useCallback(async (nodeId: string) => {
+      const nodeToEndDrag = nodes.find(n => n.id === nodeId);
+      if (nodeToEndDrag && window.electronAPI) {
+          try {
+              await window.electronAPI.updateNodePosition(nodeId, { x: nodeToEndDrag.x, y: nodeToEndDrag.y });
+          } catch (error) {
+              console.error('Failed to update node position in DB after drag:', error);
+          }
+      }
+      // ドラッグ終了時に固定を解除 (fx, fy を null に)
+      setNodes(prevNodes =>
+          prevNodes.map(node =>
+              node.id === nodeId ? { ...node, fx: null, fy: null, vx: 0, vy: 0 } : node
+          )
+      );
+      // 力指向レイアウトの場合、ドラッグ終了後に再シミュレーションを開始するかどうかは検討事項
+      // ここでは、ドラッグされたノードは手動配置とし、他のノードへの影響は次のレイアウト適用時まで待つ
+  }, [nodes]);
   
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1341,7 +1535,9 @@ export default function KnowledgeCanvasPage() {
         allTags={allTags}
         selectedFilterTags={selectedFilterTags}
         onFilterTagToggle={handleFilterTagToggle}
-        onAutoLayout={handleApplyAutoLayout}
+        onAutoLayout={applyCurrentLayout} // 変更
+        currentLayoutAlgorithm={layoutAlgorithm} // 追加
+        onLayoutAlgorithmChange={setLayoutAlgorithm} // 追加
       />
       <main className="flex-grow relative">
         <KnowledgeCanvas
@@ -1363,6 +1559,7 @@ export default function KnowledgeCanvasPage() {
           onCanvasWheel={handleCanvasWheel}
           onFilesDrop={handleFilesDrop}
           onNodeDrag={handleNodeDrag}
+          onNodeDragEnd={handleNodeDragEnd} // ドラッグ終了時の処理を追加 (KnowledgeCanvasコンポーネントにも追加が必要)
           onNodeContentUpdate={handleUpdateNodeContent} 
           onLinkClick={handleLinkClick}
         />

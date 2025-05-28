@@ -20,6 +20,7 @@ interface NodeItemProps {
   onNodeClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDoubleClick: (nodeId: string, event: React.MouseEvent) => void;
   onNodeDrag: (nodeId: string, x: number, y: number) => void;
+  onNodeDragEnd: (nodeId: string) => void; // ★ 追加
   canvasRef: React.RefObject<HTMLDivElement>;
   isLinkingMode: boolean;
   isDeleteMode: boolean;
@@ -35,6 +36,7 @@ export function NodeItem({
   onNodeClick,
   onNodeDoubleClick,
   onNodeDrag,
+  onNodeDragEnd, // ★ 追加
   canvasRef,
   isLinkingMode: propsIsLinkingMode,
   isDeleteMode,
@@ -119,15 +121,19 @@ export function NodeItem({
 
 
   const mouseUpHandler = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+    if (isDragging) { // isDragging フラグをチェック
+      onNodeDragEnd(node.id); // ★ ドラッグ終了を通知
+    }
+    setIsDragging(false); // 常に isDragging を false に
+  }, [isDragging, onNodeDragEnd, node.id]); // isDragging を依存配列に追加
 
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', mouseMoveHandler);
       document.addEventListener('mouseup', mouseUpHandler);
     } else {
-      dragStartRef.current = null;
+      // この `else` ブロックはドラッグ中でない場合に実行される
+      // dragStartRef.current = null; // これはここに残しても良いが、mouseUpHandlerでのリセットが主
     }
 
     return () => {
@@ -184,22 +190,6 @@ export function NodeItem({
     }
   };
 
-  // handleOpenFile is not used, handleOpenFileOrUrl covers its functionality.
-  // const handleOpenFile = async (e: React.MouseEvent) => {
-  //   e.stopPropagation(); // Prevent node selection or drag
-  //   if (node.type === 'file' && node.filePath && window.electronAPI) {
-  //     try {
-  //       const success = await window.electronAPI.openLocalFile(node.filePath);
-  //       if (!success) {
-  //         // Error message handled in main.js via dialog
-  //       }
-  //     } catch (error) {
-  //       console.error("Error opening file:", error);
-  //       toast({ title: "Error", description: "Could not open the file.", variant: "destructive" });
-  //     }
-  //   }
-  // };
-
   const nodeWidth = node.width || 256;
   let nodeHeight = node.height || 'auto';
     if ((node.type === 'note' || node.type === 'link') && node.tags && node.tags.length > 0 && nodeHeight === 'auto') {
@@ -224,7 +214,7 @@ export function NodeItem({
         minHeight: (node.type === 'note' || node.type === 'link') ? (node.content ? 160 : 100) : 160, // Adjusted for link description
         height: nodeHeight
       }}
-      onMouseDown={handleMouseDown}
+      onMouseDown={handleMouseDown} // ここで isDragging が true になる
       onClick={handleClick}
       onDoubleClick={handleCardDoubleClick}
       aria-selected={isSelected}
